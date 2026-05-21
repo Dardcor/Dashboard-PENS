@@ -131,13 +131,17 @@ async function casLogin(netId, password) {
 
   // Follow up to 5 redirects manually to collect all cookies
   for (let i = 0; i < 5; i++) {
+    const requestHeaders = {
+      ...BROWSER_HEADERS,
+      'Referer'   : i === 0 ? loginUrl : currentUrl,
+      'Sec-Fetch-Site': i === 0 ? 'cross-site' : 'same-origin',
+    };
+    if (etholCookies.length > 0) {
+      requestHeaders['Cookie'] = cookiesToString(etholCookies);
+    }
+
     const r = await axios.get(currentUrl, {
-      headers: {
-        ...BROWSER_HEADERS,
-        'Cookie'    : cookiesToString(etholCookies.length ? etholCookies : casCookies),
-        'Referer'   : i === 0 ? loginUrl : currentUrl,
-        'Sec-Fetch-Site': i === 0 ? 'cross-site' : 'same-origin',
-      },
+      headers: requestHeaders,
       maxRedirects : 0,
       validateStatus: s => s >= 200 && s <= 302,
       timeout      : 15000,
