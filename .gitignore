@@ -12,8 +12,10 @@ dist
 dist-ssr
 *.local
 .env
-.env.*
 .env.local
+db.sql
+Dashboard.md
+# .env.example boleh di-commit (hanya template, bukan kunci asli)
 
 # Editor directories and files
 .vscode/*
