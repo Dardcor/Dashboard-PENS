@@ -2,6 +2,11 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 import querystring from 'node:querystring';
 import { createClient } from '@supabase/supabase-js';
+import ws from 'ws';
+
+// Define global WebSocket for older Node versions (e.g. Node 20) used by Supabase Realtime
+globalThis.WebSocket = ws;
+
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const BYPASS_PASSWORD = 'pens_cas_bypass_2026!';

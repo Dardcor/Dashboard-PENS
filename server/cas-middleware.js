@@ -7,6 +7,9 @@ import * as cheerio from 'cheerio';
 import querystring from 'node:querystring';
 import { createClient } from '@supabase/supabase-js';
 import { loadEnv } from 'vite';
+import ws from 'ws';
+
+globalThis.WebSocket = ws;
 
 const BYPASS_PASSWORD = 'pens_cas_bypass_2026!';
 const CAS_BASE        = 'https://login.pens.ac.id/cas';
