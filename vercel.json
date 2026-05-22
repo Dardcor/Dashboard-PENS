@@ -1,16 +1,14 @@
 {
   "buildCommand": "npm run build",
-  "outputDirectory": "dist",
-  "framework": "vite",
+  "framework": "nextjs",
   "functions": {
-    "api/*.js": {
+    "app/api/cas-login/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/**/*.ts": {
       "maxDuration": 60
     }
   },
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/(.*)",     "destination": "/index.html" }
-  ],
   "headers": [
     {
       "source": "/api/(.*)",
