@@ -63,7 +63,26 @@ export interface NilaiPerSemester {
   semester_nama: string;
 }
 
-// ─── API Types ────────────────────────────────────────────────────────────────
+export interface KehadiranPerMatkul {
+  nama_matkul: string;
+  total_pertemuan: number;
+  hadir: number;
+  alpha: number;
+  persentase: number;
+}
+
+export interface JadwalKonsultasi {
+  id: string;
+  mahasiswa_id: string;
+  dosen_wali_id: string;
+  semester_id?: string;
+  waktu_mulai: string;
+  waktu_selesai: string;
+  status: string;
+  catatan?: string;
+  lokasi?: string;
+  dibuat_oleh: string;
+}
 
 export interface CasLoginRequest {
   netId: string;

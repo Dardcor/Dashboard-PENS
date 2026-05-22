@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
+import { supabase as supabaseClient } from '../../lib/supabase';
 
 const BYPASS_PASSWORD = 'pens_cas_bypass_2026!';
 
@@ -24,18 +25,18 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
 
   const router = useRouter();
-  const { login, user, role } = useAuth();
+  const { login, user, role, setLocalSession } = useAuth();
 
-  // Redirect jika sudah login
+
   useEffect(() => {
     if (user && role) {
       if (role === 'dosen_wali')     router.replace('/dosen');
-      else if (role === 'mahasiswa') router.replace('/mahasiswa');
+      else if (role === 'mahasiswa') router.replace('/mahasiswa/beranda');
       else                           router.replace('/');
     }
   }, [user, role, router]);
 
-  // Auto-cycle pesan status saat loading
+
   useEffect(() => {
     if (!isLoading) { setStepIdx(0); return; }
     const timer = setInterval(() => {
@@ -62,7 +63,6 @@ export default function LoginPage() {
     setStatusMsg(STATUS_STEPS[0]);
 
     try {
-      // 1. Panggil /api/cas-login (Next.js Route Handler)
       const casRes = await fetch('/api/cas-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -84,13 +84,35 @@ export default function LoginPage() {
         throw new Error(casData.message || 'Kredensial yang Anda masukkan salah.');
       }
 
-      // 2. Sign in ke Supabase menggunakan bypass password
       setStatusMsg(STATUS_STEPS[4]);
-      const { error: supaError } = await login(casData.email, BYPASS_PASSWORD);
-      if (supaError) {
-        throw new Error('Supabase Error: ' + (supaError.message || 'Gagal membuat sesi lokal.'));
+
+      setLocalSession({
+        id: casData.uid,
+        email: casData.email,
+        role: casData.role,
+        full_name: casData.fullName,
+        created_at: new Date().toISOString()
+      });
+
+      if (casData.access_token && casData.refresh_token) {
+        try {
+          await supabaseClient.auth.setSession({
+            access_token: casData.access_token,
+            refresh_token: casData.refresh_token,
+          });
+        } catch (e) {
+          console.warn(e);
+        }
       }
-      // Redirect ditangani oleh useEffect di atas
+
+      setStatusMsg(STATUS_STEPS[5]);
+      await new Promise(r => setTimeout(r, 500));
+      if (casData.role === 'dosen_wali') {
+        router.replace('/dosen');
+      } else {
+        router.replace('/mahasiswa/beranda');
+      }
+      return;
     } catch (err) {
       const error = err as Error;
       console.error('[LOGIN] Error:', error);

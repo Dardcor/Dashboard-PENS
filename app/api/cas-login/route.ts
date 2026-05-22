@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { createClient } from '@supabase/supabase-js';
+import { SignJWT } from 'jose';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
 const CAS_BASE        = 'https://login.pens.ac.id/cas';
 const ETHOL_BASE      = 'https://ethol.pens.ac.id';
 const ETHOL_SERVICE   = 'http://ethol.pens.ac.id/cas/';
@@ -19,7 +19,6 @@ const HEADERS = {
   'Upgrade-Insecure-Requests': '1',
 };
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const rnd   = (a: number, b: number) => delay(Math.floor(Math.random() * (b - a + 1)) + a);
 
@@ -35,11 +34,9 @@ function parseCookies(raw: string[] = []): Record<string, string> {
 const joinCookies = (c: Record<string, string>) =>
   Object.entries(c).map(([k, v]) => `${k}=${v}`).join('; ');
 
-// ─── Method A: CAS REST API (v2/v3) ──────────────────────────────────────────
 async function casLoginViaRest(username: string, password: string) {
   console.log('[CAS-REST] Mencoba CAS REST API...');
 
-  // Step A1: Request Ticket Granting Ticket (TGT)
   const tgtRes = await axios.post(
     `${CAS_BASE}/v1/tickets`,
     new URLSearchParams({ username, password }).toString(),
@@ -58,7 +55,6 @@ async function casLoginViaRest(username: string, password: string) {
   console.log(`[CAS-REST] TGT response: ${tgtRes.status}`);
 
   if (tgtRes.status !== 201) {
-    // REST API not available or wrong credentials
     if (tgtRes.status === 401 || tgtRes.status === 400) {
       return { success: false as const, message: 'NetID atau Password salah.', restAvailable: true };
     }
@@ -72,7 +68,6 @@ async function casLoginViaRest(username: string, password: string) {
   const tgtUrl = tgtLocation.startsWith('http') ? tgtLocation : `https://login.pens.ac.id${tgtLocation}`;
   console.log(`[CAS-REST] TGT URL: ${tgtUrl.split('/').pop()?.substring(0, 20)}...`);
 
-  // Step A2: Exchange TGT for Service Ticket (ST)
   const stRes = await axios.post(
     tgtUrl,
     new URLSearchParams({ service: ETHOL_SERVICE }).toString(),
@@ -94,15 +89,12 @@ async function casLoginViaRest(username: string, password: string) {
     return { success: false as const, message: 'Gagal mendapatkan service ticket.', restAvailable: true };
   }
 
-  // Step A3: Use Service Ticket to login to ETHOL/Moodle
   return await followTicketToEthol(ticket);
 }
 
-// ─── Method B: CAS Form Login (Fallback) ─────────────────────────────────────
 async function casLoginViaForm(username: string, password: string) {
   console.log('[CAS-FORM] Mencoba CAS form login...');
 
-  // B1: GET login page — collect ALL hidden fields + session cookies
   const getRes = await axios.get(`${CAS_BASE}/login`, {
     params : { service: ETHOL_SERVICE },
     headers: { ...HEADERS },
@@ -114,7 +106,6 @@ async function casLoginViaForm(username: string, password: string) {
   const $ = cheerio.load(getRes.data as string);
   const sessionCookies = parseCookies(getRes.headers['set-cookie'] as string[] | undefined);
 
-  // Extract ALL form fields dynamically
   const formData: Record<string, string> = {};
   $('form input').each((_, el) => {
     const name  = $(el).attr('name');
@@ -122,20 +113,17 @@ async function casLoginViaForm(username: string, password: string) {
     if (name) formData[name] = value ?? '';
   });
 
-  // Override with our credentials
   formData['username']  = username;
   formData['password']  = password;
   formData['_eventId']  = 'submit';
 
   console.log('[CAS-FORM] Form fields:', Object.keys(formData).join(', '));
-  // Extract form action dynamically (very important for Spring CAS session tracking)
   const formAction = $('form').attr('action') || '/cas/login';
   const postUrl = formAction.startsWith('http') ? formAction : `https://login.pens.ac.id${formAction}`;
   console.log('[CAS-FORM] Posting to dynamic action URL:', postUrl);
 
   await rnd(500, 1000);
 
-  // B2: POST the form to the dynamically extracted action URL
   const postRes = await axios.post(
     postUrl,
     new URLSearchParams(formData).toString(),
@@ -159,7 +147,6 @@ async function casLoginViaForm(username: string, password: string) {
   const location = postRes.headers['location'] as string | undefined;
   console.log(`[CAS-FORM] POST status: ${postRes.status}, location: ${location ?? 'none'}`);
 
-  // Detect failure messages
   const FAILURES = [
     'authenticationfailure', 'invalid credentials', 'cannot be determined',
     'bad credentials', 'authentication failed', 'login failed',
@@ -175,13 +162,11 @@ async function casLoginViaForm(username: string, password: string) {
     };
   }
 
-  // If we got a location, extract ticket from it
   if (location) {
     const ticketMatch = location.match(/ticket=(ST-[^&]+)/);
     if (ticketMatch) {
       return await followTicketToEthol(ticketMatch[1]);
     }
-    // Follow redirect manually
     return await followRedirectChain(location, { ...sessionCookies, ...parseCookies(postRes.headers['set-cookie'] as string[] | undefined) });
   }
 
@@ -191,14 +176,12 @@ async function casLoginViaForm(username: string, password: string) {
   };
 }
 
-// ─── Follow ticket URL to get ETHOL session cookies ───────────────────────────
 async function followTicketToEthol(ticket: string) {
   const ticketUrl = `${ETHOL_SERVICE}?ticket=${ticket}`;
   console.log(`[CAS] Following ticket to ETHOL: ${ticket.substring(0, 20)}...`);
   return await followRedirectChain(ticketUrl, {});
 }
 
-// ─── Follow redirect chain to collect MoodleSession ───────────────────────────
 async function followRedirectChain(startUrl: string, initialCookies: Record<string, string>) {
   let etholCookies: Record<string, string> = { ...initialCookies };
   let nextUrl: string | undefined = startUrl;
@@ -241,52 +224,63 @@ async function followRedirectChain(startUrl: string, initialCookies: Record<stri
   return { success: true as const, etholCookieStr: joinCookies(etholCookies) };
 }
 
-// ─── Main CAS Login (REST first, form fallback) ───────────────────────────────
 async function casLogin(netId: string, password: string) {
-  // ⚠️ PENTING: Jangan dipotong domainnya. Gunakan NetID lengkap yang diinput user!
   const username = netId.trim();
   console.log(`[CAS] Menggunakan NetID lengkap untuk CAS: '${username}'`);
 
-  // Try REST API first
   try {
     const restResult = await casLoginViaRest(username, password) as any;
     if (restResult && restResult.restAvailable !== false) {
-      // REST API responded — use its result (success or credential failure)
       return restResult;
     }
-    // REST API not available (404/405), fall through to form login
     console.log('[CAS] REST API tidak tersedia, beralih ke form login...');
   } catch (e) {
     console.log(`[CAS] REST API error: ${(e as Error).message}, beralih ke form login...`);
   }
 
-  // Fall back to form login
   return await casLoginViaForm(username, password);
 }
 
-// ─── Step 2: Scrape Profile ───────────────────────────────────────────────────
 async function scrapeProfile(cookieStr: string) {
-  for (const url of [`${ETHOL_BASE}/user/profile.php`, `${ETHOL_BASE}/user/edit.php`, `${ETHOL_BASE}/my/`]) {
+  const urls = [
+    `${ETHOL_BASE}/my/`,
+    `${ETHOL_BASE}/user/profile.php`,
+    `${ETHOL_BASE}/user/edit.php`,
+    `${ETHOL_BASE}/mahasiswa/beranda`,
+    `${ETHOL_BASE}/mahasiswa/`,
+    `${ETHOL_BASE}/cas/`,
+  ];
+  for (const url of urls) {
     try {
-      await rnd(400, 800);
+      await rnd(300, 600);
       const res = await axios.get(url, {
-        headers: { ...HEADERS, Cookie: cookieStr, Referer: `${ETHOL_BASE}/my/` },
+        headers: { ...HEADERS, Cookie: cookieStr, Referer: `${ETHOL_BASE}/` },
         timeout: 20000, maxRedirects: 5, validateStatus: (s) => s < 500,
       });
       if (res.status !== 200) continue;
       const $ = cheerio.load(res.data as string);
-      if ($('input[name="username"]').length) continue; // login page
+      if ($('input[name="username"]').length) continue;
 
       const fullName =
         $('h1.page-header-headings span').first().text().trim() ||
         $('h1[class*="title"]').first().text().trim() ||
-        $('h1.fullname').first().text().trim() || null;
+        $('h1.fullname').first().text().trim() ||
+        $('.usertext, .username, .user-name, .fullname, [class*="user"]').first().text().trim() ||
+        $('span.userbutton .usertext').first().text().trim() ||
+        null;
 
       const bodyText = $('body').text().replace(/\s+/g, ' ');
       const nrp      = bodyText.match(/\b(\d{10})\b/)?.[1] ?? null;
       const prodi    = bodyText.match(/D[34]\s+Teknik\s+\w+(?:\s+\w+)?/i)?.[0]?.trim() ?? null;
       const kelas    = bodyText.match(/\b([1-4]\s*[A-Z]{2}\s*[A-Z])\b/)?.[1]?.trim() ?? null;
       const angkatan = parseInt(bodyText.match(/\b(20\d{2})\b/)?.[1] ?? '') || new Date().getFullYear();
+
+      const links: string[] = [];
+      $('a[href]').each((_, el) => {
+        const h = $(el).attr('href') ?? '';
+        if (/nilai|grade|kehadiran|attendance|presensi|report|akademik/i.test(h)) links.push(h);
+      });
+      if (links.length) console.log(`[SCRAPE] Discovered links: ${links.slice(0, 5).join(', ')}`);
 
       if (fullName || nrp) {
         console.log(`[SCRAPE] Profile: name=${fullName}, nrp=${nrp}, prodi=${prodi}`);
@@ -297,24 +291,30 @@ async function scrapeProfile(cookieStr: string) {
   return { fullName: null, nrp: null, prodi: null, kelas: null, angkatan: new Date().getFullYear() };
 }
 
-// ─── Step 3: Scrape Nilai ─────────────────────────────────────────────────────
 async function scrapeNilai(cookieStr: string) {
   const list: { courseName: string; grade: string; nilaiAngka?: number }[] = [];
-  for (const url of [`${ETHOL_BASE}/grade/report/overview/index.php`, `${ETHOL_BASE}/grade/report/user/index.php`]) {
+  const urls = [
+    `${ETHOL_BASE}/grade/report/overview/index.php`,
+    `${ETHOL_BASE}/grade/report/user/index.php`,
+    `${ETHOL_BASE}/mahasiswa/nilai`,
+    `${ETHOL_BASE}/mahasiswa/akademik`,
+  ];
+  for (const url of urls) {
     try {
-      await rnd(400, 800);
+      await rnd(300, 600);
       const res = await axios.get(url, {
-        headers: { ...HEADERS, Cookie: cookieStr, Referer: `${ETHOL_BASE}/my/` },
+        headers: { ...HEADERS, Cookie: cookieStr, Referer: `${ETHOL_BASE}/` },
         timeout: 20000, maxRedirects: 5, validateStatus: (s) => s < 500,
       });
       if (res.status !== 200) continue;
       const $ = cheerio.load(res.data as string);
+      if ($('input[name="username"]').length) continue;
       $('table tbody tr').each((_, row) => {
         const cells = $(row).find('td');
         if (cells.length < 2) return;
         const name = $(cells[0]).text().trim();
         const raw  = $(cells[cells.length - 1]).text().trim();
-        if (!name || /course name|nama/i.test(name)) return;
+        if (!name || /course name|nama|mata.?kuliah/i.test(name)) return;
         const n = raw.match(/[\d.]+/);
         list.push({ courseName: name, grade: raw.substring(0, 5), nilaiAngka: n ? parseFloat(n[0]) : undefined });
       });
@@ -324,18 +324,24 @@ async function scrapeNilai(cookieStr: string) {
   return list;
 }
 
-// ─── Step 4: Scrape Kehadiran ─────────────────────────────────────────────────
 async function scrapeKehadiran(cookieStr: string) {
   const list: { matkul: string; hadir: number; total: number; persentase: number }[] = [];
-  for (const url of [`${ETHOL_BASE}/mod/attendance/view.php`, `${ETHOL_BASE}/attendance/view.php`]) {
+  const urls = [
+    `${ETHOL_BASE}/mod/attendance/view.php`,
+    `${ETHOL_BASE}/attendance/view.php`,
+    `${ETHOL_BASE}/mahasiswa/kehadiran`,
+    `${ETHOL_BASE}/mahasiswa/presensi`,
+  ];
+  for (const url of urls) {
     try {
-      await rnd(400, 800);
+      await rnd(300, 600);
       const res = await axios.get(url, {
-        headers: { ...HEADERS, Cookie: cookieStr, Referer: `${ETHOL_BASE}/my/` },
+        headers: { ...HEADERS, Cookie: cookieStr, Referer: `${ETHOL_BASE}/` },
         timeout: 20000, maxRedirects: 5, validateStatus: (s) => s < 500,
       });
       if (res.status !== 200) continue;
       const $ = cheerio.load(res.data as string);
+      if ($('input[name="username"]').length) continue;
       $('table tbody tr').each((_, row) => {
         const cells = $(row).find('td');
         if (cells.length < 2) return;
@@ -351,8 +357,6 @@ async function scrapeKehadiran(cookieStr: string) {
   return list;
 }
 
-// ─── Step 5: Sync to Supabase ─────────────────────────────────────────────────
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function syncToSupabase(supa: any, netId: string, profile: Awaited<ReturnType<typeof scrapeProfile>>, nilaiList: Awaited<ReturnType<typeof scrapeNilai>>, kehadiranList: Awaited<ReturnType<typeof scrapeKehadiran>>) {
   let email = netId.trim();
   if (!email.includes('@')) {
@@ -424,10 +428,9 @@ async function syncToSupabase(supa: any, netId: string, profile: Awaited<ReturnT
     await supa.from('dosen_wali').upsert({ user_id: uid, nip, nama_lengkap: fullName, prodi, jurusan: 'Teknik Informatika' }, { onConflict: 'user_id' });
   }
 
-  return { email, role, isNew: !existing };
+  return { email, role, isNew: !existing, uid: uid! };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function getOrCreateMatkul(supa: any, nama: string, prodi: string): Promise<string | null> {
   const { data: ex } = await supa.from('mata_kuliah').select('id').ilike('nama', `%${nama.substring(0, 25)}%`).maybeSingle();
   if (ex) return ex.id;
@@ -437,7 +440,27 @@ async function getOrCreateMatkul(supa: any, nama: string, prodi: string): Promis
   return c?.id ?? null;
 }
 
-// ─── Route Handler ────────────────────────────────────────────────────────────
+async function generateSessionTokens(jwtSecret: string, uid: string, email: string, userRole: string): Promise<{ access_token: string; refresh_token: string }> {
+  const secret = new TextEncoder().encode(jwtSecret);
+  const now = Math.floor(Date.now() / 1000);
+
+  const access_token = await new SignJWT({
+    aud: 'authenticated',
+    exp: now + 3600,
+    iat: now,
+    sub: uid,
+    email,
+    role: 'authenticated',
+    app_metadata: { provider: 'email', providers: ['email'] },
+    user_metadata: { full_name: email.split('@')[0], role: userRole },
+    session_id: crypto.randomUUID(),
+  })
+    .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
+    .sign(secret);
+
+  return { access_token, refresh_token: crypto.randomUUID() };
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { netId, password } = await request.json() as { netId?: string; password?: string };
@@ -445,8 +468,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: 'NetID dan Password wajib diisi.' }, { status: 400 });
     }
 
-    const supaUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const svcKey  = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supaUrl    = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const svcKey     = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const jwtSecret  = process.env.SUPABASE_JWT_SECRET;
     if (!supaUrl || !svcKey) throw new Error('Konfigurasi Supabase belum diset.');
 
     const supa = createClient(supaUrl, svcKey, { auth: { autoRefreshToken: false, persistSession: false } });
@@ -469,9 +493,26 @@ export async function POST(request: NextRequest) {
     console.log(`[CAS] Scraping done: profil=${profile.fullName ?? '?'}, nilai=${nilaiList.length}, kehadiran=${kehadiranList.length}`);
 
     const userInfo = await syncToSupabase(supa, netId.trim(), profile, nilaiList, kehadiranList);
-    console.log(`[CAS] ✓ Sync selesai: ${userInfo.email} (${userInfo.role})\n${'='.repeat(60)}\n`);
+    console.log(`[CAS] ✓ Sync selesai: ${userInfo.email} (${userInfo.role})`);
 
-    return NextResponse.json({ success: true, email: userInfo.email, role: userInfo.role, isNew: userInfo.isNew, scrapedProfile: profile, scrapedNilai: nilaiList.length, scrapedKehadiran: kehadiranList.length });
+    let tokens = { access_token: '', refresh_token: '' };
+    if (jwtSecret) {
+      tokens = await generateSessionTokens(jwtSecret, userInfo.uid, userInfo.email, userInfo.role);
+      console.log(`[CAS] ✓ Session tokens generated\n${'='.repeat(60)}\n`);
+    } else {
+      console.warn('[AUTH] Warning: SUPABASE_JWT_SECRET not found. Proceeding with frontend local session fallback.');
+    }
+
+    return NextResponse.json({
+      success: true,
+      email: userInfo.email,
+      role: userInfo.role,
+      isNew: userInfo.isNew,
+      uid: userInfo.uid,
+      fullName: profile.fullName || userInfo.email.split('@')[0],
+      access_token: tokens.access_token || null,
+      refresh_token: tokens.refresh_token || null,
+    });
 
   } catch (err) {
     const e = err as Error & { response?: { status: number } };

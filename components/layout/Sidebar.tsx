@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Users, AlertTriangle, Calendar, LogOut } from 'lucide-react';
+import { LayoutDashboard, Users, AlertTriangle, Calendar, LogOut, BookOpen, Clock, FileText, CheckSquare } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import type { LucideIcon } from 'lucide-react';
 
@@ -24,8 +24,13 @@ export default function Sidebar() {
   ];
 
   const mhsLinks: NavLink[] = [
-    { path: '/mahasiswa',        icon: LayoutDashboard, label: 'Dashboard' },
-    { path: '/mahasiswa/jadwal', icon: Calendar,        label: 'Jadwal Konsultasi' },
+    { path: '/mahasiswa/beranda', icon: LayoutDashboard, label: 'Beranda' },
+    { path: '/mahasiswa/matakuliah', icon: BookOpen, label: 'Matakuliah' },
+    { path: '/mahasiswa/jadwal-online', icon: Clock, label: 'Jadwal Online' },
+    { path: '/mahasiswa/tugas-online', icon: CheckSquare, label: 'Tugas Online' },
+    { path: '/mahasiswa/uts', icon: FileText, label: 'Ujian UTS' },
+    { path: '/mahasiswa/uas', icon: FileText, label: 'Ujian UAS' },
+    { path: '/mahasiswa/jadwal', icon: Calendar, label: 'Jadwal Konsultasi' }
   ];
 
   const links: NavLink[] =
@@ -33,7 +38,7 @@ export default function Sidebar() {
 
   const isActive = (path: string) =>
     pathname === path ||
-    (path !== '/dosen' && path !== '/mahasiswa' && pathname.startsWith(path));
+    (path !== '/dosen' && path !== '/mahasiswa/beranda' && pathname.startsWith(path));
 
   return (
     <div
@@ -50,7 +55,6 @@ export default function Sidebar() {
         zIndex: 10,
       }}
     >
-      {/* Logo */}
       <div
         className="p-6"
         style={{
@@ -60,7 +64,6 @@ export default function Sidebar() {
           gap: '1rem',
         }}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/logo.png" alt="Logo PENS" style={{ width: '40px', height: 'auto' }} />
         <div>
           <h2 style={{ color: 'var(--color-primary)', fontSize: '1.25rem', fontWeight: 'bold' }}>
@@ -72,8 +75,7 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* Navigation */}
-      <div className="p-4" style={{ flex: 1 }}>
+      <div className="p-4" style={{ flex: 1, overflowY: 'auto' }}>
         <p
           className="text-muted"
           style={{
@@ -115,7 +117,6 @@ export default function Sidebar() {
         </ul>
       </div>
 
-      {/* Logout */}
       <div className="p-4" style={{ borderTop: '1px solid var(--color-border)' }}>
         <button
           onClick={logout}

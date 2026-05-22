@@ -12,6 +12,7 @@ interface AuthContextValue {
   loading: boolean;
   login: (email: string, password: string) => Promise<{ error: Error | null }>;
   logout: () => Promise<void>;
+  setLocalSession: (user: PublicUser) => void;
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -21,6 +22,7 @@ const AuthContext = createContext<AuthContextValue>({
   loading: true,
   login: async () => ({ error: null }),
   logout: async () => {},
+  setLocalSession: () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -32,24 +34,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check active session
+    const localSess = typeof window !== 'undefined' ? localStorage.getItem('pens_local_session') : null;
+    if (localSess) {
+      try {
+        const u = JSON.parse(localSess);
+        if (u && u.id) {
+          setUser(u);
+          setRole(u.role);
+          setSession({ user: { id: u.id, email: u.email } } as unknown as Session);
+          setLoading(false);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
       if (session?.user) {
+        setSession(session);
         fetchUserProfile(session.user.id);
-      } else {
+      } else if (!localSess) {
         setLoading(false);
       }
     });
 
-    // Listen for auth state changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
       if (session?.user) {
+        setSession(session);
         fetchUserProfile(session.user.id);
-      } else {
+      } else if (!localStorage.getItem('pens_local_session')) {
+        setSession(null);
         setUser(null);
         setRole(null);
         setLoading(false);
@@ -71,11 +87,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       setUser(data as PublicUser);
       setRole(data.role as UserRole);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('pens_local_session', JSON.stringify(data));
+      }
     } catch (error) {
-      console.error('Error fetching user profile:', error);
+      console.error(error);
     } finally {
       setLoading(false);
     }
+  };
+
+  const setLocalSession = (u: PublicUser) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pens_local_session', JSON.stringify(u));
+    }
+    setUser(u);
+    setRole(u.role);
+    setSession({ user: { id: u.id, email: u.email } } as unknown as Session);
+    setLoading(false);
   };
 
   const login = async (email: string, password: string) => {
@@ -84,6 +113,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = async () => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('pens_local_session');
+    }
+    setUser(null);
+    setRole(null);
+    setSession(null);
     await supabase.auth.signOut();
   };
 
@@ -94,6 +129,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loading,
     login,
     logout,
+    setLocalSession,
   };
 
   return (
