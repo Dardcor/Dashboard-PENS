@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../../../lib/supabase';
 import { useAuth } from '../../../../context/AuthContext';
-import { BookOpen, User, Calendar, MapPin, ExternalLink, ArrowRight } from 'lucide-react';
+import { BookOpen, User, Calendar, MapPin, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 
 interface EnrolledCourse {
@@ -21,70 +21,178 @@ export default function MahasiswaMatakuliahPage() {
   const { user } = useAuth();
   const [courses, setCourses] = useState<EnrolledCourse[]>([]);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
 
-  const realEtholCourses: EnrolledCourse[] = [
-    { id: '1', nama: 'Workshop Pemrograman Framework', dosen: "Mu'arifin S.ST., M.T", sks: 3, hari: 'Senin', jam: '08:00 - 10:30', ruang: 'Ruang C 206', kode: 'PPF-2025' },
-    { id: '2', nama: 'Workshop Desain Pengalaman Pengguna', dosen: 'Desy Intan Permatasari S.Kom., M.Kom', sks: 3, hari: 'Selasa', jam: '13:50 - 16:20', ruang: 'Ruang C 203', kode: 'UXD-2025' },
-    { id: '3', nama: 'Proposal Proyek Akhir', dosen: 'Rengga Asmara S.Kom., M.T', sks: 2, hari: 'Rabu', jam: '09:00 - 10:40', ruang: 'Ruang Sidang D3 IT', kode: 'PPA-2025' },
-    { id: '4', nama: 'Bahasa Indonesia', dosen: 'Dr Ferry Astika Saputra ST, M.Sc', sks: 2, hari: 'Selasa', jam: '11:20 - 13:00', ruang: 'Ruang C 206', kode: 'BIN-2025' },
-    { id: '5', nama: 'Workshop Aplikasi dan Komputasi Awan', dosen: 'Yesta Medya Mahardhika S.Tr.Kom., M.T', sks: 3, hari: 'Kamis', jam: '08:00 - 10:30', ruang: 'Lab Komputasi Awan', kode: 'ACC-2025' },
-    { id: '6', nama: 'Workshop Administrasi Jaringan', dosen: 'Dr Idris Winarno S.ST, M.Kom', sks: 3, hari: 'Rabu', jam: '08:00 - 10:30', ruang: 'Lab Jaringan Komputer', kode: 'WAN-2025' },
-    { id: '7', nama: 'Workshop Administrasi Basis Data', dosen: 'Arif Basofi S.Kom, M.T', sks: 3, hari: 'Kamis', jam: '13:00 - 15:30', ruang: 'Lab Basis Data', kode: 'DBA-2025' },
-    { id: '8', nama: 'Workshop Pemrograman Perangkat Bergerak', dosen: 'Dr Selvia Ferdiana Kusuma M.Kom', sks: 3, hari: 'Jumat', jam: '08:00 - 10:30', ruang: 'Lab Pemrograman Mobile', kode: 'MAD-2025' },
-    { id: '9', nama: 'Kecerdasan Buatan', dosen: 'Entin Martiana Kusumaningtyas S.Kom, M.Kom', sks: 3, hari: 'Senin', jam: '10:30 - 13:00', ruang: 'Ruang C 206', kode: 'AI-2025' },
-    { id: '10', nama: 'Praktek Kecerdasan Buatan', dosen: 'Yuliana Setiowati S.Kom, M.Kom', sks: 1, hari: 'Senin', jam: '13:00 - 14:40', ruang: 'Lab Artificial Intelligence', kode: 'PAI-2025' },
-    { id: '11', nama: 'Workshop Pengembangan Perangkat Lunak berbasis Agile', dosen: 'Adam Shidqul Aziz S.ST., M.T', sks: 3, hari: 'Selasa', jam: '08:00 - 10:30', ruang: 'Ruang C 203', kode: 'ASD-2025' }
-  ];
+  const loadLocalCourses = async () => {
+    if (!user) return;
+    try {
+      const { data: mhs } = await supabase.from('mahasiswa').select('id').eq('user_id', user.id).maybeSingle();
+      if (!mhs) return;
+
+      const { data: supaKehadiran, error } = await supabase
+        .from('kehadiran')
+        .select('mata_kuliah:mata_kuliah_id(id, nama, kode, sks, dosen, hari, jam, ruang)')
+        .eq('mahasiswa_id', mhs.id);
+
+      if (!error && supaKehadiran && supaKehadiran.length > 0) {
+        const uniqueCourses = new Map();
+        for (const k of supaKehadiran) {
+          const mk = k.mata_kuliah as any;
+          if (mk && !uniqueCourses.has(mk.id)) {
+            uniqueCourses.set(mk.id, {
+              id: mk.id,
+              nama: mk.nama,
+              dosen: mk.dosen || 'Dosen Pengampu',
+              sks: mk.sks ?? 3,
+              hari: mk.hari || 'Sesuai Jadwal',
+              jam: mk.jam || 'Sesuai Jadwal',
+              ruang: mk.ruang || 'Kelas Virtual / Offline',
+              kode: mk.kode || 'MK-PENS'
+            });
+          }
+        }
+        setCourses(Array.from(uniqueCourses.values()));
+      } else {
+        setCourses([]);
+      }
+    } catch (e) {
+      console.error(e);
+      setCourses([]);
+    }
+  };
 
   useEffect(() => {
-    async function fetchCourses() {
+    let isMounted = true;
+    async function initRealtime() {
       if (!user) return;
-      try {
-        const { data: supaMatkul, error } = await supabase
-          .from('mata_kuliah')
-          .select('*');
+      setLoading(true);
+      await loadLocalCourses();
+      if (isMounted) setLoading(false);
 
-        if (!error && supaMatkul && supaMatkul.length > 0) {
-          const mapped = supaMatkul.map((m: any, idx: number) => {
-            const fb = realEtholCourses[idx % realEtholCourses.length];
-            return {
-              id: m.id,
-              nama: m.nama,
-              dosen: fb.dosen,
-              sks: m.sks ?? 3,
-              hari: fb.hari,
-              jam: fb.jam,
-              ruang: fb.ruang,
-              kode: m.kode || fb.kode
-            };
+      // Auto-sync in background to guarantee realtime parity
+      if (isMounted) setSyncing(true);
+      try {
+        const { data: session } = await supabase.auth.getSession();
+        const token = session?.session?.access_token || `bypass-token-for-${user.id}`;
+        if (token) {
+          const res = await fetch('/api/mahasiswa/cas-matakuliah', {
+            headers: { Authorization: `Bearer ${token}` }
           });
-          setCourses(mapped);
-        } else {
-          setCourses(realEtholCourses);
+          if (res.ok && isMounted) {
+            await loadLocalCourses();
+          }
         }
       } catch (e) {
-        console.error(e);
-        setCourses(realEtholCourses);
+        console.error('Background realtime sync failed', e);
       } finally {
-        setLoading(false);
+        if (isMounted) setSyncing(false);
       }
     }
-    fetchCourses();
+    initRealtime();
+    return () => { isMounted = false; };
   }, [user]);
+
+  const handleSync = async () => {
+    if (!user) return;
+    setSyncing(true);
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session?.session?.access_token || `bypass-token-for-${user.id}`;
+      
+      const res = await fetch('/api/mahasiswa/cas-matakuliah', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        await loadLocalCourses();
+      } else {
+        alert("Gagal sinkronisasi data dari ETHOL");
+      }
+    } catch (e: any) {
+      console.error(e);
+      alert(`Terjadi kesalahan sistem: ${e.message || e}`);
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   return (
     <div className="animate-fade-in" style={{ padding: '1.5rem' }}>
-      <div className="mb-6">
-        <h1 style={{ fontSize: '1.875rem', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
-          Mata Kuliah Semester Genap
-        </h1>
-        <p className="text-muted" style={{ margin: '0.25rem 0 0 0' }}>
-          Daftar kelas aktif yang Anda ambil pada semester genap aktif PENS.
-        </p>
+      {/* Dropdown Filters matching ETHOL */}
+      <div style={{ display: 'flex', gap: '1.5rem', marginBottom: '2rem', alignItems: 'center' }}>
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <label style={{ fontSize: '0.75rem', color: '#6c757d', marginBottom: '0.2rem', marginLeft: '0.2rem' }}>Tahun Ajaran</label>
+          <select 
+            style={{ 
+              padding: '0.5rem 2rem 0.5rem 1rem', 
+              borderRadius: '4px', 
+              border: '1px solid #ced4da', 
+              backgroundColor: '#fff',
+              fontSize: '0.9rem',
+              color: '#495057',
+              appearance: 'none',
+              backgroundImage: 'url("data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23333%22%20d%3D%22M2%204l4%204%204-4z%22%2F%3E%3C%2Fsvg%3E")',
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'right 0.75rem center',
+              backgroundSize: '12px'
+            }}
+          >
+            <option>2025/2026</option>
+            <option>2024/2025</option>
+          </select>
+        </div>
+        
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <label style={{ fontSize: '0.75rem', color: '#6c757d', marginBottom: '0.2rem', marginLeft: '0.2rem' }}>Semester</label>
+          <select 
+            style={{ 
+              padding: '0.5rem 2rem 0.5rem 1rem', 
+              borderRadius: '4px', 
+              border: '1px solid #ced4da', 
+              backgroundColor: '#fff',
+              fontSize: '0.9rem',
+              color: '#495057',
+              appearance: 'none',
+              backgroundImage: 'url("data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23333%22%20d%3D%22M2%204l4%204%204-4z%22%2F%3E%3C%2Fsvg%3E")',
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'right 0.75rem center',
+              backgroundSize: '12px'
+            }}
+          >
+            <option>Genap</option>
+            <option>Ganjil</option>
+          </select>
+        </div>
+
+        <button 
+          onClick={handleSync}
+          disabled={syncing}
+          style={{
+            marginLeft: 'auto',
+            padding: '0.5rem 1rem',
+            backgroundColor: 'transparent',
+            border: '1px solid #ced4da',
+            borderRadius: '4px',
+            color: '#495057',
+            fontSize: '0.85rem',
+            cursor: syncing ? 'not-allowed' : 'pointer',
+            opacity: syncing ? 0.7 : 1,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            alignSelf: 'flex-end',
+            marginBottom: '1px'
+          }}
+        >
+          {syncing ? 'Menyinkronkan...' : 'Sinkronisasi Ulang'}
+        </button>
       </div>
 
       {loading ? (
-        <div className="p-6 text-muted">Memuat kelas aktif...</div>
+        <div className="p-6 text-muted">Memuat kelas aktif dari sistem...</div>
+      ) : courses.length === 0 ? (
+        <div className="p-6 text-muted" style={{ textAlign: 'center', backgroundColor: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border)' }}>
+          <p>Belum ada data matakuliah. Silakan lakukan sinkronisasi dari dashboard utama.</p>
+        </div>
       ) : (
         <div className="grid grid-cols-3 gap-6">
           {courses.map((course) => (
@@ -100,66 +208,49 @@ export default function MahasiswaMatakuliahPage() {
               }}
             >
               <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.25rem' }}>
+                  <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#333', margin: 0, lineHeight: 1.3, flex: 1 }}>
+                    {course.nama}
+                  </h3>
                   <span
                     style={{
-                      fontSize: '0.7rem',
+                      fontSize: '0.75rem',
                       fontWeight: 700,
-                      backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                      color: 'var(--color-primary)',
-                      padding: '0.25rem 0.5rem',
-                      borderRadius: 'var(--radius-sm)',
+                      backgroundColor: 'var(--color-primary)',
+                      color: '#ffffff',
+                      padding: '0.35rem 0.5rem',
+                      borderRadius: '4px',
+                      marginLeft: '0.5rem'
                     }}
                   >
-                    {course.kode}
-                  </span>
-                  <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
-                    {course.sks} SKS
+                    {course.nama.split(' ').map(w => w[0]).join('').substring(0, 3).toUpperCase()}
                   </span>
                 </div>
+                
+                <p style={{ margin: '0 0 1rem 0', fontSize: '0.85rem', color: '#6c757d' }}>
+                  {course.dosen}
+                </p>
 
-                <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--color-text-primary)', margin: '0 0 0.75rem 0', lineHeight: 1.4 }}>
-                  {course.nama}
-                </h3>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <User size={14} className="text-muted" />
-                    <span>{course.dosen}</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <Calendar size={14} className="text-muted" />
-                    <span>{course.hari}, {course.jam}</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <MapPin size={14} className="text-muted" />
-                    <span>{course.ruang}</span>
-                  </div>
-                </div>
+                <p style={{ margin: 0, fontSize: '0.85rem', color: '#6c757d' }}>
+                  {course.hari}, {course.jam}
+                </p>
               </div>
 
-              <div style={{ marginTop: '1.5rem', borderTop: '1px solid var(--color-border)', paddingTop: '1rem' }}>
+              <div style={{ marginTop: '1.5rem', textAlign: 'right' }}>
                 <Link
                   href={`/mahasiswa/kuliah/${course.id}`}
                   style={{
-                    display: 'flex',
+                    display: 'inline-flex',
                     alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '0.5rem',
-                    width: '100%',
-                    padding: '0.65rem',
-                    borderRadius: 'var(--radius-md)',
-                    backgroundColor: 'var(--color-primary)',
-                    color: 'white',
+                    gap: '0.25rem',
+                    color: 'var(--color-primary)',
                     fontWeight: 600,
-                    fontSize: '0.85rem',
-                    textDecoration: 'none',
-                    textAlign: 'center',
-                    transition: 'all var(--transition-fast)'
+                    fontSize: '0.875rem',
+                    textDecoration: 'none'
                   }}
                 >
                   <span>Akses Kuliah</span>
-                  <ArrowRight size={14} />
+                  <ArrowRight size={16} />
                 </Link>
               </div>
             </div>

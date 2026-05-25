@@ -63,7 +63,7 @@ export default function LoginPage() {
     setStatusMsg(STATUS_STEPS[0]);
 
     try {
-      const casRes = await fetch('/api/cas-login', {
+      const casRes = await fetch('/api/mahasiswa/cas-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ netId: netId.trim(), password }),

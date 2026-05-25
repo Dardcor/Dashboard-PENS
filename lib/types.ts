@@ -1,6 +1,6 @@
 // ─── Shared Types ─────────────────────────────────────────────────────────────
 
-export type UserRole = 'dosen_wali' | 'mahasiswa';
+export type UserRole = 'admin' | 'dosen_wali' | 'mahasiswa';
 
 export interface PublicUser {
   id: string;
@@ -103,4 +103,138 @@ export interface CasLoginResponse {
   };
   scrapedNilai?: number;
   scrapedKehadiran?: number;
+}
+
+// ─── ETHOL API Types ───────────────────────────────────────────────────────────
+
+export interface Quiz {
+  id: number;
+  judul: string;
+  tglIndo: string;
+  jenisSchema: number;
+  courseName?: string;
+  kuliah?: number;
+  waktu?: number;
+  durasi?: number;
+}
+
+export interface QuizSoal {
+  kuis_soal_id: number;
+  kuis_hasil_id: number;
+  soal: string;
+  pilihan: string[];
+  jawaban_dipilih?: string;
+  tipe_soal: 'pilihan_ganda' | 'pilihan_jamak';
+}
+
+export interface Exam {
+  nomor: number;
+  keterangan: string;
+  matakuliah: string;
+  tglIndonesia: string;
+  tanggal: string;
+  waktu: string;
+  jenis?: string;
+}
+
+export interface ForumPost {
+  id: number;
+  narasi: string;
+  namaPegawai?: string;
+  nama_mahasiswa?: string;
+  nama?: string;
+  nrp?: string;
+  waktu_indonesia?: string;
+  tanggal?: string;
+  komentar?: ForumComment[];
+}
+
+export interface ForumComment {
+  id: number;
+  narasi: string;
+  nama?: string;
+  waktu_indonesia?: string;
+}
+
+export interface EtholNotification {
+  id: number;
+  keterangan: string;
+  status: string;
+  urlWeb?: string;
+  kodeNotifikasi: string;
+  dataTerkait?: any;
+  createdAt?: string;
+  waktuNotifikasi?: string;
+  createdAtIndonesia?: string;
+}
+
+export interface SupportTicket {
+  nomor: number;
+  judul: string;
+  keterangan: string;
+  status: string;
+  tanggal: string;
+  createdAt?: string;
+  balasan?: SupportReply[];
+}
+
+export interface SupportReply {
+  id: number;
+  balasan: string;
+  nama?: string;
+  tipe?: string;
+  waktu?: string;
+}
+
+export interface CourseMaterial {
+  nomor: number;
+  judul: string;
+  keterangan?: string;
+  path?: string;
+  ekstensiFile?: string;
+  createdIndonesia?: string;
+  pertemuan?: number;
+}
+
+export interface CourseVideo {
+  nomor: number;
+  judul: string;
+  keterangan?: string;
+  url?: string;
+  url_video?: string;
+  image?: string;
+}
+
+export interface ScheduleEntry {
+  kuliah: string;
+  hari: string;
+  jamAwal: string;
+  jamAkhir: string;
+  nomorHari: number;
+  ruang?: string;
+  matakuliah?: string;
+}
+
+export interface AttendanceRecord {
+  nomor: number;
+  waktuIndonesia?: string;
+  key?: string;
+  keterangan?: string;
+  materi?: string;
+  pertemuan?: number;
+  isAbsent?: boolean;
+}
+
+export interface Participant {
+  nama: string;
+  nrp: string;
+  hakAktif?: string;
+  nomorPegawai?: string;
+}
+
+export interface WebSocketMessage {
+  type: 'PRESENSI' | 'TUGAS' | 'MATERI' | 'PENGUMUMAN' | 'CHAT';
+  data: any;
+  idNotifikasi?: number;
+  pesan?: string;
 }

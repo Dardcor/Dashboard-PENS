@@ -1,25 +1,48 @@
 'use client';
 
-import { useState } from 'react';
-import { Calendar, User, Clock } from 'lucide-react';
-
-interface UjianItem {
-  matkul: string;
-  dosen: string;
-  tanggal: string;
-  jam: string;
-  tipe: 'Teori' | 'Praktikum';
-}
+import { useState, useEffect } from 'react';
+import { supabase } from '../../../../lib/supabase';
+import { useAuth } from '../../../../context/AuthContext';
+import { Calendar, Clock, FileText, Loader2, ExternalLink } from 'lucide-react';
 
 export default function MahasiswaUasPage() {
-  const [uasList] = useState<UjianItem[]>([
-    { matkul: 'Workshop Pemrograman Framework', dosen: "Mu'arifin S.ST., M.T", tanggal: 'Senin, 15 Juni 2026', jam: '08:50 - 11:20', tipe: 'Praktikum' },
-    { matkul: 'Workshop Administrasi Jaringan', dosen: 'Dr Idris Winarno S.ST, M.Kom', tanggal: 'Rabu, 17 Juni 2026', jam: '08:00 - 10:30', tipe: 'Praktikum' },
-    { matkul: 'Praktek Kecerdasan Buatan', dosen: 'Yuliana Setiowati S.Kom, M.Kom', tanggal: 'Jumat, 19 Juni 2026', jam: '10:30 - 13:00', tipe: 'Praktikum' },
-    { matkul: 'Bahasa Indonesia', dosen: 'Dr Ferry Astika Saputra ST, M.Sc', tanggal: 'Selasa, 16 Juni 2026', jam: '11:20 - 13:00', tipe: 'Teori' },
-    { matkul: 'Workshop Administrasi Basis Data', dosen: 'Arif Basofi S.Kom, M.T', tanggal: 'Kamis, 18 Juni 2026', jam: '13:00 - 15:30', tipe: 'Praktikum' },
-    { matkul: 'Workshop Desain Pengalaman Pengguna', dosen: 'Desy Intan Permatasari S.Kom., M.Kom', tanggal: 'Selasa, 16 Juni 2026', jam: '13:50 - 16:20', tipe: 'Praktikum' },
-  ]);
+  const { user } = useAuth();
+  const [exams, setExams] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchExams() {
+      if (!user) return;
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+
+        const res = await fetch('/api/mahasiswa/exam?jenis=UAS', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (res.ok) {
+          const body = await res.json();
+          if (body.success) {
+            setExams(body.data.uas || body.data.all || []);
+          }
+        }
+      } catch (e) {
+        console.error('Error fetching exams:', e);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchExams();
+  }, [user]);
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
+        <Loader2 size={32} style={{ color: 'var(--color-primary)', animation: 'spin 1s linear infinite' }} />
+      </div>
+    );
+  }
 
   return (
     <div className="animate-fade-in" style={{ padding: '1.5rem' }}>
@@ -28,59 +51,55 @@ export default function MahasiswaUasPage() {
           Jadwal Ujian Akhir Semester (UAS)
         </h1>
         <p className="text-muted" style={{ margin: '0.25rem 0 0 0' }}>
-          Jadwal perkiraan resmi Ujian Akhir Semester Genap di platform online PENS.
+          Jadwal resmi Ujian Akhir Semester dari ETHOL PENS.
         </p>
       </div>
 
       <div className="card">
         <div className="card-header">
-          <h2 className="card-title">Daftar Jadwal UAS Aktif</h2>
+          <h2 className="card-title">
+            Daftar Jadwal UAS Aktif
+            <span style={{ fontSize: '0.8rem', fontWeight: 500, color: 'var(--color-text-muted)', marginLeft: '0.5rem' }}>
+              ({exams.length} ujian)
+            </span>
+          </h2>
         </div>
         <div className="table-container">
           <table className="table">
             <thead>
               <tr>
                 <th>Mata Kuliah</th>
-                <th>Dosen Pengampu</th>
-                <th>Tipe</th>
+                <th>Keterangan</th>
                 <th>Tanggal Ujian</th>
                 <th>Waktu</th>
               </tr>
             </thead>
             <tbody>
-              {uasList.map((row, idx) => (
-                <tr key={idx}>
-                  <td style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{row.matkul}</td>
-                  <td>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                      <User size={14} className="text-muted" />
-                      <span>{row.dosen}</span>
-                    </div>
+              {exams.length === 0 ? (
+                <tr>
+                  <td colSpan={4} style={{ textAlign: 'center', padding: '2rem' }} className="text-muted">
+                    <FileText size={32} style={{ opacity: 0.3, marginBottom: '0.5rem' }} />
+                    <p>Belum ada jadwal UAS. Sinkronisasikan data ETHOL Anda.</p>
                   </td>
+                </tr>
+              ) : exams.map((row: any, idx: number) => (
+                <tr key={idx}>
+                  <td style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{row.matakuliah || row.matkul || 'Mata Kuliah'}</td>
                   <td>
-                    <span
-                      style={{
-                        padding: '0.2rem 0.5rem',
-                        fontSize: '0.75rem',
-                        borderRadius: 'var(--radius-sm)',
-                        fontWeight: 600,
-                        backgroundColor: row.tipe === 'Teori' ? 'rgba(59, 130, 246, 0.1)' : 'rgba(139, 92, 246, 0.1)',
-                        color: row.tipe === 'Teori' ? 'var(--color-primary)' : '#8b5cf6',
-                      }}
-                    >
-                      {row.tipe}
+                    <span style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>
+                      {row.keterangan || 'UAS'}
                     </span>
                   </td>
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                       <Calendar size={14} className="text-muted" />
-                      <span>{row.tanggal}</span>
+                      <span>{row.tglIndonesia || row.tanggal || 'Jadwal'}</span>
                     </div>
                   </td>
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                       <Clock size={14} className="text-muted" />
-                      <span>{row.jam}</span>
+                      <span>{row.waktu || 'Sesuai Jadwal'}</span>
                     </div>
                   </td>
                 </tr>
@@ -89,6 +108,18 @@ export default function MahasiswaUasPage() {
           </table>
         </div>
       </div>
+
+      {exams.length > 0 && (
+        <div className="card mt-4" style={{ padding: '1rem', backgroundColor: 'rgba(59, 130, 246, 0.03)' }}>
+          <p className="text-muted" style={{ fontSize: '0.85rem', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <FileText size={16} />
+            Data ujian diambil langsung dari ETHOL PENS.
+            <a href="https://ethol.pens.ac.id/mahasiswa/ujian" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--color-primary)', fontWeight: 600, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+              ETHOL Ujian <ExternalLink size={12} />
+            </a>
+          </p>
+        </div>
+      )}
     </div>
   );
 }

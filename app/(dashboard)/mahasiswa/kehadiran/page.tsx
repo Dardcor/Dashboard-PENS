@@ -12,19 +12,7 @@ export default function MahasiswaKehadiranPage() {
   const [loading, setLoading] = useState(true);
   const [selectedSemester, setSelectedSemester] = useState('Genap 2025');
 
-  const fallbackKehadiran: KehadiranPerMatkul[] = [
-    { nama_matkul: 'Workshop Pemrograman Framework', total_pertemuan: 14, hadir: 14, alpha: 0, persentase: 100.00 },
-    { nama_matkul: 'Workshop Desain Pengalaman Pengguna', total_pertemuan: 14, hadir: 13, alpha: 1, persentase: 92.86 },
-    { nama_matkul: 'Proposal Proyek Akhir', total_pertemuan: 12, hadir: 12, alpha: 0, persentase: 100.00 },
-    { nama_matkul: 'Bahasa Indonesia', total_pertemuan: 14, hadir: 14, alpha: 0, persentase: 100.00 },
-    { nama_matkul: 'Workshop Aplikasi dan Komputasi Awan', total_pertemuan: 14, hadir: 14, alpha: 0, persentase: 100.00 },
-    { nama_matkul: 'Workshop Administrasi Jaringan', total_pertemuan: 14, hadir: 13, alpha: 1, persentase: 92.86 },
-    { nama_matkul: 'Workshop Administrasi Basis Data', total_pertemuan: 14, hadir: 14, alpha: 0, persentase: 100.00 },
-    { nama_matkul: 'Workshop Pemrograman Perangkat Bergerak', total_pertemuan: 14, hadir: 14, alpha: 0, persentase: 100.00 },
-    { nama_matkul: 'Kecerdasan Buatan', total_pertemuan: 14, hadir: 13, alpha: 1, persentase: 92.86 },
-    { nama_matkul: 'Praktek Kecerdasan Buatan', total_pertemuan: 14, hadir: 14, alpha: 0, persentase: 100.00 },
-    { nama_matkul: 'Workshop Pengembangan Perangkat Lunak berbasis Agile', total_pertemuan: 14, hadir: 14, alpha: 0, persentase: 100.00 }
-  ];
+  // State for attendance
 
   useEffect(() => {
     async function fetchAttendance() {
@@ -37,11 +25,11 @@ export default function MahasiswaKehadiranPage() {
         if (!error && supaKehadiran && supaKehadiran.length > 0) {
           setKehadiranList(supaKehadiran as KehadiranPerMatkul[]);
         } else {
-          setKehadiranList(fallbackKehadiran);
+          setKehadiranList([]);
         }
       } catch (e) {
         console.error(e);
-        setKehadiranList(fallbackKehadiran);
+        setKehadiranList([]);
       } finally {
         setLoading(false);
       }
@@ -153,6 +141,12 @@ export default function MahasiswaKehadiranPage() {
                 <tr>
                   <td colSpan={6} style={{ textAlign: 'center', padding: '2rem' }} className="text-muted">
                     Memuat data absensi...
+                  </td>
+                </tr>
+              ) : kehadiranList.length === 0 ? (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '3rem' }} className="text-muted">
+                    Belum ada data kehadiran. Silakan lakukan sinkronisasi dari dashboard utama.
                   </td>
                 </tr>
               ) : (

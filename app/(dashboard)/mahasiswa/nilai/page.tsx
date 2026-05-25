@@ -19,19 +19,7 @@ export default function MahasiswaNilaiPage() {
   const [loading, setLoading] = useState(true);
   const [selectedSemester, setSelectedSemester] = useState('Genap 2025');
 
-  const fallbackNilai: NilaiPerSemester[] = [
-    { nama_matkul: 'Workshop Pemrograman Framework', sks: 3, nilai_akhir: 88, grade: 'A', bobot_nilai: 4, semester_nama: 'Genap 2025' },
-    { nama_matkul: 'Workshop Desain Pengalaman Pengguna', sks: 3, nilai_akhir: 85, grade: 'A', bobot_nilai: 4, semester_nama: 'Genap 2025' },
-    { nama_matkul: 'Proposal Proyek Akhir', sks: 2, nilai_akhir: 90, grade: 'A', bobot_nilai: 4, semester_nama: 'Genap 2025' },
-    { nama_matkul: 'Bahasa Indonesia', sks: 2, nilai_akhir: 80, grade: 'AB', bobot_nilai: 3.5, semester_nama: 'Genap 2025' },
-    { nama_matkul: 'Workshop Aplikasi dan Komputasi Awan', sks: 3, nilai_akhir: 84, grade: 'A', bobot_nilai: 4, semester_nama: 'Genap 2025' },
-    { nama_matkul: 'Workshop Administrasi Jaringan', sks: 3, nilai_akhir: 78, grade: 'AB', bobot_nilai: 3.5, semester_nama: 'Genap 2025' },
-    { nama_matkul: 'Workshop Administrasi Basis Data', sks: 3, nilai_akhir: 82, grade: 'A', bobot_nilai: 4, semester_nama: 'Genap 2025' },
-    { nama_matkul: 'Workshop Pemrograman Perangkat Bergerak', sks: 3, nilai_akhir: 86, grade: 'A', bobot_nilai: 4, semester_nama: 'Genap 2025' },
-    { nama_matkul: 'Kecerdasan Buatan', sks: 3, nilai_akhir: 80, grade: 'AB', bobot_nilai: 3.5, semester_nama: 'Genap 2025' },
-    { nama_matkul: 'Praktek Kecerdasan Buatan', sks: 1, nilai_akhir: 92, grade: 'A', bobot_nilai: 4, semester_nama: 'Genap 2025' },
-    { nama_matkul: 'Workshop Pengembangan Perangkat Lunak berbasis Agile', sks: 3, nilai_akhir: 85, grade: 'A', bobot_nilai: 4, semester_nama: 'Genap 2025' }
-  ];
+  // State for grades
 
   useEffect(() => {
     async function fetchGrades() {
@@ -44,11 +32,11 @@ export default function MahasiswaNilaiPage() {
         if (!error && supaNilai && supaNilai.length > 0) {
           setNilaiList(supaNilai as NilaiPerSemester[]);
         } else {
-          setNilaiList(fallbackNilai);
+          setNilaiList([]);
         }
       } catch (e) {
         console.error(e);
-        setNilaiList(fallbackNilai);
+        setNilaiList([]);
       } finally {
         setLoading(false);
       }
@@ -159,6 +147,12 @@ export default function MahasiswaNilaiPage() {
                 <tr>
                   <td colSpan={6} style={{ textAlign: 'center', padding: '2rem' }} className="text-muted">
                     Memuat data nilai akademik...
+                  </td>
+                </tr>
+              ) : nilaiList.length === 0 ? (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '3rem' }} className="text-muted">
+                    Belum ada data nilai. Silakan lakukan sinkronisasi dari dashboard utama.
                   </td>
                 </tr>
               ) : (

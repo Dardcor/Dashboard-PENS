@@ -1,119 +1,344 @@
 'use client';
 
-import Image from 'next/image';
-import { Bell, Search } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import { useState, useRef, useEffect } from 'react';
+import { Bell, Menu, CheckCheck, Wifi, WifiOff, RefreshCw, Activity } from 'lucide-react';
+import { useSidebar } from '../../context/SidebarContext';
+import { useNotifications } from '../../context/NotificationContext';
+import { useRealtime } from '../../context/RealtimeContext';
+import type { WSConnectionState } from '../../lib/websocket';
+
+function ConnectionIndicator({ state }: { state: WSConnectionState }) {
+  const colors: Record<WSConnectionState, string> = {
+    connected: '#10b981',
+    connecting: '#f59e0b',
+    reconnecting: '#f59e0b',
+    disconnected: '#ef4444',
+  };
+
+  const labels: Record<WSConnectionState, string> = {
+    connected: 'Live',
+    connecting: 'Menghubungkan...',
+    reconnecting: 'Menyambung ulang...',
+    disconnected: 'Offline',
+  };
+
+  const isActive = state === 'connected';
+
+  return (
+    <div
+      style={{
+        display: 'flex', alignItems: 'center', gap: '0.35rem',
+        color: 'rgba(255,255,255,0.9)', fontSize: '0.7rem',
+        cursor: 'pointer',
+        padding: '0.25rem 0.5rem',
+        borderRadius: '4px',
+        backgroundColor: isActive ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+        border: `1px solid ${colors[state]}40`,
+      }}
+      title={`Real-time: ${labels[state]}`}
+    >
+      {isActive ? (
+        <span style={{ position: 'relative', display: 'flex' }}>
+          <Wifi size={11} style={{ color: colors[state] }} />
+          <span style={{
+            position: 'absolute', top: -2, right: -2, width: 6, height: 6,
+            borderRadius: '50%', backgroundColor: colors[state],
+            animation: 'pulse 2s infinite',
+          }} />
+        </span>
+      ) : state === 'connecting' || state === 'reconnecting' ? (
+        <RefreshCw size={11} style={{ color: colors[state], animation: 'spin 1s linear infinite' }} />
+      ) : (
+        <WifiOff size={11} style={{ color: colors[state] }} />
+      )}
+      <span style={{ color: colors[state], fontWeight: 600 }}>{labels[state]}</span>
+    </div>
+  );
+}
 
 export default function Header() {
-  const { user, role } = useAuth();
+  const { toggle, isMobile } = useSidebar();
+  const { notifications, unreadCount, markAsRead, markAllAsRead, wsConnectionState, lastEvent } = useNotifications();
+  const { alertBaru, wsEventLog } = useRealtime();
+  const [showNotif, setShowNotif] = useState(false);
+  const [showActivity, setShowActivity] = useState(false);
+  const notifRef = useRef<HTMLDivElement>(null);
+  const activityRef = useRef<HTMLDivElement>(null);
 
-  const avatarUrl =
-    user?.avatar_url ||
-    `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.full_name ?? 'User')}&background=random`;
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setShowNotif(false);
+      }
+      if (activityRef.current && !activityRef.current.contains(e.target as Node)) {
+        setShowActivity(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const getTipeIcon = (tipe: string) => {
+    const colors: Record<string, string> = {
+      alert: '#ef4444',
+      pengingat: '#f59e0b',
+      info: '#3b82f6',
+      jadwal: '#10b981',
+    };
+    return colors[tipe] || '#6b7280';
+  };
+
+  const totalActiveAlerts = alertBaru.length;
 
   return (
     <header
-      className="glass"
       style={{
-        height: '70px',
+        height: '60px',
+        backgroundColor: 'var(--color-primary)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: '0 2rem',
-        position: 'sticky',
-        top: 0,
-        zIndex: 9,
-        borderBottom: '1px solid var(--color-border)',
-        marginLeft: '260px',
+        padding: '0 1.5rem',
+        zIndex: 50,
+        width: '100%',
+        boxShadow: 'var(--shadow-sm)',
+        flexShrink: 0,
       }}
     >
-      {/* Search bar */}
-      <div style={{ flex: 1 }}>
-        <div style={{ position: 'relative', maxWidth: '400px' }}>
-          <Search
-            size={18}
-            style={{
-              position: 'absolute',
-              left: '1rem',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              color: 'var(--color-text-muted)',
-            }}
-          />
-          <input
-            type="text"
-            placeholder="Cari mahasiswa, NRP..."
-            className="form-control"
-            style={{
-              paddingLeft: '2.5rem',
-              borderRadius: 'var(--radius-full)',
-              backgroundColor: 'var(--color-background)',
-              border: 'none',
-            }}
-          />
+      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+        {isMobile && (
+          <button
+            onClick={toggle}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'white', padding: '0.25rem' }}
+            aria-label="Toggle menu"
+          >
+            <Menu size={24} />
+          </button>
+        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <img src="/logo.png" alt="Logo PENS" style={{ height: '36px', width: 'auto' }} />
+          <div style={{ display: 'flex', flexDirection: 'column', color: 'white' }}>
+            <span style={{ fontWeight: 'bold', fontSize: '1.25rem', lineHeight: 1.2, letterSpacing: '0.5px' }}>ETHOL</span>
+            <span style={{ fontSize: '0.65rem', opacity: 0.9, letterSpacing: '0.2px' }}>Enterprise Technology Hybrid Online Learning</span>
+          </div>
         </div>
       </div>
 
-      {/* Right section */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-        {/* Notification bell */}
-        <button
-          style={{
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            position: 'relative',
-            color: 'var(--color-text-secondary)',
-          }}
-          aria-label="Notifikasi"
-        >
-          <Bell size={20} />
-          <span
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+        {/* Activity Log (Real-time Events) */}
+        <div ref={activityRef} style={{ position: 'relative' }}>
+          <button
+            onClick={() => setShowActivity(!showActivity)}
             style={{
-              position: 'absolute',
-              top: '-4px',
-              right: '-4px',
-              backgroundColor: 'var(--color-danger)',
-              width: '8px',
-              height: '8px',
-              borderRadius: '50%',
+              background: 'rgba(255,255,255,0.1)',
+              border: 'none', cursor: 'pointer', color: 'white',
+              padding: '0.5rem', borderRadius: '50%',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              position: 'relative',
+              transition: 'background-color 0.2s',
             }}
-          />
-        </button>
+            title="Aktivitas Real-time"
+          >
+            <Activity size={18} />
+            {lastEvent && (
+              <span style={{
+                position: 'absolute', top: '2px', right: '2px',
+                width: 8, height: 8, borderRadius: '50%',
+                backgroundColor: '#10b981',
+                animation: 'pulse 2s infinite',
+              }} />
+            )}
+          </button>
 
-        {/* User info */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <div style={{ textAlign: 'right' }}>
-            <p
+          {showActivity && (
+            <div
               style={{
-                fontSize: '0.875rem',
-                fontWeight: 600,
-                color: 'var(--color-text-primary)',
+                position: 'absolute', top: 'calc(100% + 8px)', right: 0,
+                width: '300px', maxHeight: '400px',
+                backgroundColor: 'white', borderRadius: 'var(--radius-md)',
+                boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
+                border: '1px solid var(--color-border)',
+                overflow: 'hidden', display: 'flex', flexDirection: 'column',
+                zIndex: 100,
               }}
             >
-              {user?.full_name || 'Loading...'}
-            </p>
-            <p
-              style={{
-                fontSize: '0.75rem',
-                color: 'var(--color-text-secondary)',
-                textTransform: 'capitalize',
-              }}
-            >
-              {(role || '').replace('_', ' ')}
-            </p>
+              <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--color-border)' }}>
+                <span style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--color-text-primary)' }}>
+                  Aktivitas Real-time
+                </span>
+              </div>
+              <div style={{ overflowY: 'auto', flex: 1 }}>
+                {wsEventLog.length === 0 ? (
+                  <div style={{ padding: '2rem 1rem', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>
+                    <Activity size={24} style={{ opacity: 0.3, marginBottom: '0.5rem' }} />
+                    <p>Belum ada aktivitas</p>
+                  </div>
+                ) : wsEventLog.slice(0, 30).map((ev, i) => (
+                  <div key={i} style={{
+                    padding: '0.5rem 1rem', borderBottom: '1px solid var(--color-border)',
+                    fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}>
+                    <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                      {ev.type}
+                    </span>
+                    <span style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)' }}>
+                      {ev.timestamp.toLocaleTimeString('id-ID')}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* WebSocket Status */}
+        <ConnectionIndicator state={wsConnectionState} />
+
+        {/* Alert Badge */}
+        {totalActiveAlerts > 0 && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '0.25rem',
+            backgroundColor: 'rgba(239,68,68,0.2)', color: '#fca5a5',
+            padding: '0.2rem 0.5rem', borderRadius: '1rem',
+            fontSize: '0.7rem', fontWeight: 700,
+          }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#ef4444', animation: 'pulse 2s infinite' }} />
+            {totalActiveAlerts} Alert
           </div>
-          <Image
-            src={avatarUrl}
-            alt="Avatar"
-            width={40}
-            height={40}
+        )}
+
+        {/* Notification Bell */}
+        <div ref={notifRef} style={{ position: 'relative' }}>
+          <button
+            onClick={() => setShowNotif(!showNotif)}
             style={{
+              background: 'rgba(255,255,255,0.1)',
+              border: 'none',
+              cursor: 'pointer',
+              position: 'relative',
+              color: 'white',
+              padding: '0.5rem',
               borderRadius: '50%',
-              objectFit: 'cover',
-              border: '2px solid var(--color-primary-light)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'background-color 0.2s',
             }}
-          />
+            aria-label="Notifikasi"
+          >
+            <Bell size={20} />
+            {unreadCount > 0 && (
+              <span
+                style={{
+                  position: 'absolute',
+                  top: '-2px',
+                  right: '-2px',
+                  backgroundColor: '#ef4444',
+                  color: 'white',
+                  fontSize: '0.65rem',
+                  fontWeight: 700,
+                  minWidth: '18px',
+                  height: '18px',
+                  borderRadius: '9px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: '2px solid var(--color-primary)',
+                  animation: unreadCount > 0 ? 'pulse 2s infinite' : 'none',
+                }}
+              >
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            )}
+          </button>
+
+          {showNotif && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 'calc(100% + 8px)',
+                right: 0,
+                width: '360px',
+                maxHeight: '480px',
+                backgroundColor: 'white',
+                borderRadius: 'var(--radius-md)',
+                boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
+                border: '1px solid var(--color-border)',
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+                zIndex: 100,
+              }}
+            >
+              <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--color-text-primary)' }}>
+                  Notifikasi
+                  {unreadCount > 0 && (
+                    <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', color: '#6b7280' }}>
+                      ({unreadCount} belum dibaca)
+                    </span>
+                  )}
+                </span>
+                {unreadCount > 0 && (
+                  <button
+                    onClick={markAllAsRead}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-primary)', fontSize: '0.75rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                  >
+                    <CheckCheck size={14} /> Tandai Semua Dibaca
+                  </button>
+                )}
+              </div>
+
+              <div style={{ overflowY: 'auto', flex: 1 }}>
+                {notifications.length === 0 ? (
+                  <div style={{ padding: '2rem 1rem', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>
+                    <Bell size={24} style={{ opacity: 0.3, marginBottom: '0.5rem' }} />
+                    <p>Tidak ada notifikasi</p>
+                  </div>
+                ) : (
+                  notifications.slice(0, 20).map((n) => (
+                    <div
+                      key={n.id}
+                      onClick={() => {
+                        if (n.status === 'belum_dibaca') markAsRead(n.id);
+                        setShowNotif(false);
+                      }}
+                      style={{
+                        padding: '0.75rem 1rem',
+                        borderBottom: '1px solid var(--color-border)',
+                        backgroundColor: n.status === 'belum_dibaca' ? 'rgba(59, 130, 246, 0.03)' : 'transparent',
+                        cursor: 'pointer',
+                        transition: 'background-color 0.15s',
+                        display: 'flex',
+                        gap: '0.75rem',
+                        alignItems: 'flex-start',
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.02)')}
+                      onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = n.status === 'belum_dibaca' ? 'rgba(59, 130, 246, 0.03)' : 'transparent')}
+                    >
+                      <div style={{
+                        width: '8px', height: '8px', borderRadius: '50%',
+                        backgroundColor: getTipeIcon(n.tipe),
+                        marginTop: '6px', flexShrink: 0,
+                      }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: n.status === 'belum_dibaca' ? 700 : 500, fontSize: '0.85rem', color: 'var(--color-text-primary)', marginBottom: '0.15rem' }}>
+                          {n.judul}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {n.pesan}
+                        </div>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)', marginTop: '0.2rem' }}>
+                          {new Date(n.created_at).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </header>
