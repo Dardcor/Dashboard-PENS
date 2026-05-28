@@ -4,6 +4,9 @@ import * as cheerio from 'cheerio';
 import { createClient } from '@supabase/supabase-js';
 import * as etholApi from '../../../../lib/ethol-api';
 
+export const maxDuration = 60;
+export const dynamic = 'force-dynamic';
+
 const ETHOL_BASE = 'https://ethol.pens.ac.id';
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 

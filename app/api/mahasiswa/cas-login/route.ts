@@ -5,6 +5,9 @@ import { createClient } from '@supabase/supabase-js';
 import { SignJWT } from 'jose';
 import * as etholApi from '../../../../lib/ethol-api';
 
+export const maxDuration = 60;
+export const dynamic = 'force-dynamic';
+
 const CAS_BASE = 'https://login.pens.ac.id/cas';
 const ETHOL_BASE = 'https://ethol.pens.ac.id';
 const ETHOL_SERVICE = 'http://ethol.pens.ac.id/cas/';
