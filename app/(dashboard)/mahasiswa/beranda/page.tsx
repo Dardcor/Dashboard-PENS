@@ -1,14 +1,11 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '../../../../lib/supabase';
 import { useAuth } from '../../../../context/AuthContext';
-import { useRealtime } from '../../../../context/RealtimeContext';
-import { useNotifications } from '../../../../context/NotificationContext';
 import {
-  Video, Layers, Laptop, Globe, BookOpen, User, MapPin,
+  Video, Layers, Laptop, Globe, BookOpen,
   FileText, Book, Download, ExternalLink, Play, RefreshCw, CheckCircle,
-  AlertCircle, Loader2, ArrowRight, ChevronRight, ChevronLeft, Calendar, Clock, Activity, Bell
+  AlertCircle, Loader2, ArrowRight, Clock, Info
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -40,64 +37,54 @@ interface EnrolledCourse {
   kode: string;
 }
 
-interface SyncStats {
-  nilai?: number;
-  kehadiran?: number;
-  tugas?: number;
-  pengumuman?: number;
+// ─── Tag color same as ETHOL ──────────────────────────────────────────────────
+function getTagColor(kode: string, nama: string): string {
+  const k = kode.toUpperCase();
+  const n = nama.toUpperCase();
+  if (k === 'WPF' || n.includes('PEMROGRAMAN FRAMEWORK')) return '#1779ba';
+  if (k === 'WDP' || n.includes('DESAIN PENGALAMAN') || n.includes('UX')) return '#00838f';
+  if (k === 'PPA' || n.includes('PROYEK AKHIR') || n.includes('PROPOSAL')) return '#8d6e63';
+  if (k === 'WAJ' || n.includes('JARINGAN')) return '#546e7a';
+  if (k === 'WAB' || n.includes('BASIS DATA') || n.includes('DATABASE')) return '#1565c0';
+  if (k === 'WAK' || n.includes('KOMPUTASI AWAN') || n.includes('CLOUD')) return '#2e7d32';
+  if (k === 'WPB' || n.includes('PERANGKAT BERGERAK') || n.includes('MOBILE')) return '#6a1b9a';
+  if (k === 'WAG' || n.includes('AGILE')) return '#e65100';
+  if (k === 'PKB' || k === 'PRA' || n.includes('KECERDASAN BUATAN') || n.includes('AI')) return '#37474f';
+  if (k === 'BI' || n.includes('BAHASA INDONESIA')) return '#4e342e';
+  if (k === 'PKA' || n.includes('PRAKTEK') || n.includes('PRAKTIK')) return '#880e4f';
+  // Fallback: hash-based color from name
+  let hash = 0;
+  for (let i = 0; i < nama.length; i++) hash = nama.charCodeAt(i) + ((hash << 5) - hash);
+  const colors = ['#1779ba','#00838f','#8d6e63','#546e7a','#1565c0','#2e7d32','#6a1b9a','#e65100','#37474f','#880e4f'];
+  return colors[Math.abs(hash) % colors.length];
 }
 
 export default function MahasiswaBerandaPage() {
   const { user } = useAuth();
-  const { nilaiChanges, kehadiranChanges, alertBaru, ipkUpdates } = useRealtime();
-  const { lastEvent, wsConnectionState } = useNotifications();
   const [loading, setLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState('');
   const [syncSuccess, setSyncSuccess] = useState<boolean | null>(null);
-  const [syncStats, setSyncStats] = useState<SyncStats>({});
 
   const [courses, setCourses] = useState<EnrolledCourse[]>([]);
   const [tugasTerbaru, setTugasTerbaru] = useState<TugasItem[]>([]);
   const [pengumuman, setPengumuman] = useState<PengumumanItem[]>([]);
   const [lastSync, setLastSync] = useState<string | null>(null);
   const [semesterInfo, setSemesterInfo] = useState<string>('');
+  const [carouselIdx, setCarouselIdx] = useState(0);
 
   const fetchData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     try {
-      const { data: mhs } = await supabase.from('mahasiswa').select('id').eq('user_id', user.id).maybeSingle();
-      if (!mhs) return;
-
-      const [supaKehadiran, tugasRes, pengumumanRes, sess, sem] = await Promise.all([
-        supabase.from('kehadiran').select('mata_kuliah:mata_kuliah_id(id, nama, kode, sks)').eq('mahasiswa_id', mhs.id),
-        supabase.from('tugas').select('*, mata_kuliah(nama)').eq('mahasiswa_id', mhs.id).order('deadline', { ascending: true }).limit(4),
-        supabase.from('pengumuman').select('id,judul,publisher,tanggal,file_url').order('tanggal', { ascending: false }).limit(4),
-        supabase.from('user_ethol_sessions').select('last_sync_at').eq('user_id', user.id).maybeSingle(),
-        supabase.from('semester').select('nama').eq('is_aktif', true).maybeSingle(),
-      ]);
-
-      if (supaKehadiran && supaKehadiran.data && supaKehadiran.data.length > 0) {
-        const uniqueCourses = new Map();
-        for (const k of supaKehadiran.data) {
-          const mk = k.mata_kuliah as any;
-          if (mk && !uniqueCourses.has(mk.id)) {
-            uniqueCourses.set(mk.id, {
-              id: mk.id, nama: mk.nama, dosen: 'Dosen Pengampu',
-              sks: mk.sks ?? 3, hari: 'Sesuai Jadwal',
-              jam: 'Sesuai Jadwal', ruang: 'Kelas Virtual / Offline',
-              kode: mk.kode || 'MK-PENS'
-            });
-          }
-        }
-        setCourses(Array.from(uniqueCourses.values()));
-      }
-
-      if (tugasRes.data) setTugasTerbaru(tugasRes.data as TugasItem[]);
-      if (pengumumanRes.data) setPengumuman(pengumumanRes.data as PengumumanItem[]);
-      if (sess.data?.last_sync_at) setLastSync(sess.data.last_sync_at);
-      if (sem.data) setSemesterInfo(sem.data.nama);
+      const email = encodeURIComponent(user.email || '');
+      const res = await fetch(`/api/mahasiswa/beranda-data?user_id=${user.id}&email=${email}`);
+      const data = await res.json();
+      if (data.courses) setCourses(data.courses);
+      if (data.tugas) setTugasTerbaru(data.tugas);
+      if (data.pengumuman) setPengumuman(data.pengumuman);
+      if (data.lastSync) setLastSync(data.lastSync);
+      if (data.semesterInfo) setSemesterInfo(data.semesterInfo);
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -105,13 +92,9 @@ export default function MahasiswaBerandaPage() {
     }
   }, [user]);
 
-  useEffect(() => { 
-    fetchData().then(() => {
-      // Auto background sync on load
-      handleSync(true);
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const handleSync = async (isBackground = false) => {
     if (isSyncing) return;
@@ -132,7 +115,6 @@ export default function MahasiswaBerandaPage() {
           setSyncSuccess(true);
           setSyncMessage('Berhasil disinkronisasi!');
         }
-        setSyncStats(data.stats || {});
         await fetchData();
       } else {
         if (!isBackground) {
@@ -147,160 +129,141 @@ export default function MahasiswaBerandaPage() {
       }
     } finally {
       setIsSyncing(false);
-      setTimeout(() => { setSyncMessage(''); setSyncSuccess(null); setSyncStats({}); }, 8000);
+      setTimeout(() => { setSyncMessage(''); setSyncSuccess(null); }, 8000);
     }
   };
 
-  const totalLiveChanges = nilaiChanges.length + kehadiranChanges.length + ipkUpdates.length;
-  const hasLiveActivity = totalLiveChanges > 0 || alertBaru.length > 0;
+  // Carousel: show 3 cards at a time like ETHOL
+  const VISIBLE = 3;
+  const maxIdx = Math.max(0, courses.length - VISIBLE);
 
-  const gridMenus = [
-    { title: 'Kelas Virtual', icon: Video, color: '#0C6B94', href: '/mahasiswa/matakuliah' },
-    { title: 'Materi Perkuliahan', icon: Layers, color: '#F59E0B', href: '/mahasiswa/materi-perkuliahan' },
-    { title: 'Lab Virtual', icon: Laptop, color: '#10B981', href: 'https://vlab.ethol.pens.ac.id/', external: true },
-    { title: 'Praktikum', icon: BookOpen, color: '#8B5CF6', href: '/mahasiswa/praktikum' },
-    { title: 'Administrasi', icon: Globe, color: '#EF4444', href: 'https://online.mis.pens.ac.id/', external: true },
-    { title: 'Perpustakaan', icon: Book, color: '#6366F1', href: 'https://ebook.pens.ac.id/', external: true },
-    { title: 'Ujian Online', icon: FileText, color: '#14B8A6', href: '/mahasiswa/ujian-online' },
-    { title: 'Video Pembelajaran', icon: Play, color: '#EC4899', href: '/mahasiswa/video' },
+  const menuItems = [
+    { title: 'Kelas Virtual',      icon: Video,     color: '#1e88e5', bg: '#e3f2fd', href: '/mahasiswa/matakuliah' },
+    { title: 'Materi Perkuliahan', icon: Layers,     color: '#f57c00', bg: '#fff3e0', href: '/mahasiswa/materi-perkuliahan' },
+    { title: 'Lab Virtual',        icon: Laptop,     color: '#00897b', bg: '#e0f2f1', href: 'https://vlab.ethol.pens.ac.id/', external: true },
+    { title: 'Praktikum',          icon: BookOpen,   color: '#5c6bc0', bg: '#e8eaf6', href: '/mahasiswa/praktikum' },
+    { title: 'Administrasi',       icon: Globe,      color: '#e91e63', bg: '#fce4ec', href: 'https://online.mis.pens.ac.id/', external: true },
+    { title: 'Perpustakaan',       icon: Book,       color: '#8bc34a', bg: '#f1f8e9', href: 'https://ebook.pens.ac.id/', external: true },
   ];
 
   if (loading) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', flexDirection: 'column', gap: '1rem' }}>
-        <Loader2 size={32} style={{ color: 'var(--color-primary)', animation: 'spin 1s linear infinite' }} />
-        <p className="text-muted">Memuat data akademik...</p>
+        <Loader2 size={32} style={{ color: '#0b668b', animation: 'spin 1s linear infinite' }} />
+        <p style={{ color: '#666', margin: 0 }}>Memuat data akademik...</p>
       </div>
     );
   }
 
   return (
-    <div className="animate-fade-in dashboard-page">
-      {/* Sync Banner */}
+    <div style={{ padding: '1.5rem', fontFamily: "'Roboto', sans-serif" }}>
+      {/* Sync banner */}
       {syncMessage && (
-        <div className={`sync-banner ${syncSuccess === true ? 'sync-success' : syncSuccess === false ? 'sync-error' : 'sync-loading'}`}>
-          {isSyncing ? <Loader2 size={16} className="spin-icon" /> : syncSuccess ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '0.5rem',
+          padding: '0.75rem 1rem', marginBottom: '1rem', borderRadius: '6px',
+          backgroundColor: syncSuccess === true ? '#e8f5e9' : syncSuccess === false ? '#ffebee' : '#e3f2fd',
+          border: `1px solid ${syncSuccess === true ? '#a5d6a7' : syncSuccess === false ? '#ef9a9a' : '#90caf9'}`,
+          color: syncSuccess === true ? '#2e7d32' : syncSuccess === false ? '#c62828' : '#1565c0',
+          fontSize: '0.875rem',
+        }}>
+          {isSyncing ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : syncSuccess ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
           <span>{syncMessage}</span>
         </div>
       )}
 
-      {/* Live Activity Banner */}
-      {hasLiveActivity && (
-        <div style={{
-          padding: '0.75rem 1rem', marginBottom: '1rem',
-          borderRadius: 'var(--radius-md)',
-          backgroundColor: 'rgba(16,185,129,0.05)',
-          border: '1px solid rgba(16,185,129,0.2)',
-          display: 'flex', alignItems: 'center', gap: '0.75rem',
-          flexWrap: 'wrap', fontSize: '0.85rem',
-        }}>
-          <Activity size={16} style={{ color: '#10b981', animation: 'pulse 2s infinite' }} />
-          <span style={{ fontWeight: 600, color: '#10b981' }}>Data Real-time:</span>
-          {kehadiranChanges.length > 0 && <span className="badge badge-success">{kehadiranChanges.length} update kehadiran</span>}
-          {nilaiChanges.length > 0 && <span className="badge badge-warning">{nilaiChanges.length} update nilai</span>}
-          {ipkUpdates.length > 0 && <span className="badge badge-primary">{ipkUpdates.length} update IPK</span>}
-          {alertBaru.length > 0 && <span className="badge badge-danger">{alertBaru.length} alert baru</span>}
-          {lastEvent && (
-            <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginLeft: 'auto' }}>
-              Event terakhir: {lastEvent.type} ({lastEvent.time.toLocaleTimeString('id-ID')})
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Header with Sync Button */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
-        <div>
-          <h2 style={{ fontSize: '1.4rem', fontWeight: 700, margin: 0, color: 'var(--color-text-primary)' }}>{semesterInfo || 'Semester Aktif'}</h2>
-          {lastSync && (
-            <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', margin: '0.25rem 0 0' }}>
-              Update terakhir: {new Date(lastSync).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
-            </p>
-          )}
-        </div>
-        <button 
-          onClick={() => handleSync(false)} 
-          disabled={isSyncing} 
-          className="btn"
-          style={{ 
-            backgroundColor: 'white', 
-            border: '1px solid var(--color-border)',
-            color: 'var(--color-text-primary)',
-            boxShadow: 'var(--shadow-sm)',
-            fontWeight: 600,
-            fontSize: '0.85rem'
-          }}
-        >
-          {isSyncing ? <Loader2 size={15} className="spin-icon" /> : <RefreshCw size={15} style={{ color: 'var(--color-primary)' }} />}
-          <span>{isSyncing ? 'Menyinkronkan...' : 'Sinkronkan ETHOL'}</span>
-        </button>
-      </div>
-
-      {/* Courses Carousel / Grid (Exact ETHOL style matching Gambar 2) */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '1rem' }}>
-        <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: '#333', margin: 0 }}>
-          Kuliah Semester Genap Tahun Ajaran 2025
+      {/* ── Kuliah Carousel ─────────────────────────────────────────────────── */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+        <h2 style={{ fontSize: '1.15rem', fontWeight: 600, color: '#333', margin: 0 }}>
+          {semesterInfo || 'Kuliah Semester Genap Tahun Ajaran 2025'}
         </h2>
-        <span style={{ fontSize: '0.75rem', color: '#888', fontStyle: 'italic' }}>
-          Item dapat digeser ke kanan atau ke kiri
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <span style={{ fontSize: '0.75rem', color: '#999', fontStyle: 'italic' }}>
+            Item dapat digeser ke kanan atau ke kiri
+          </span>
+          <button
+            onClick={() => handleSync(false)}
+            disabled={isSyncing}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '0.4rem',
+              padding: '0.4rem 0.9rem', borderRadius: '20px',
+              border: '1px solid #ccc', backgroundColor: '#fff',
+              color: '#555', fontSize: '0.8rem', cursor: isSyncing ? 'not-allowed' : 'pointer',
+              opacity: isSyncing ? 0.7 : 1, boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+            }}
+          >
+            {isSyncing ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={13} />}
+            {isSyncing ? 'Menyinkronkan...' : 'Menyinkronkan...'}
+          </button>
+        </div>
       </div>
 
       {courses.length === 0 ? (
-        <div className="card p-6 mb-8 text-center text-muted" style={{ borderStyle: 'dashed' }}>
-          <BookOpen size={32} style={{ opacity: 0.5, margin: '0 auto 0.5rem' }} />
-          <p>Belum ada matakuliah. Klik sinkronisasi untuk memuat dari ETHOL.</p>
+        <div style={{
+          textAlign: 'center', padding: '3rem 1rem', marginBottom: '1.5rem',
+          backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #e2e8f0',
+        }}>
+          <BookOpen size={36} style={{ color: '#cbd5e1', marginBottom: '0.75rem' }} />
+          <p style={{ color: '#94a3b8', margin: 0, fontSize: '0.9rem' }}>
+            Belum ada matakuliah. Klik sinkronisasi untuk memuat dari ETHOL.
+          </p>
         </div>
       ) : (
-        <div style={{ marginBottom: '1.5rem' }}>
-          <div style={{
-            display: 'flex', gap: '1.25rem', overflowX: 'auto', paddingBottom: '1rem',
-            scrollSnapType: 'x mandatory', msOverflowStyle: 'none', scrollbarWidth: 'none'
-          }}>
+        <div style={{ marginBottom: '1.5rem', position: 'relative' }}>
+          {/* Carousel container */}
+          <div style={{ display: 'flex', gap: '1rem', overflowX: 'auto', scrollSnapType: 'x mandatory', paddingBottom: '4px', scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
             {courses.map((course) => {
-              // Exact Tag Initials color from ETHOL
-              let tagBg = '#1779ba';
-              if (course.kode.toUpperCase() === 'WPF') tagBg = '#1779ba';
-              else if (course.kode.toUpperCase() === 'WDP') tagBg = '#00838f';
-              else if (course.kode.toUpperCase() === 'PPA') tagBg = '#8d6e63';
-
+              const tagBg = getTagColor(course.kode, course.nama);
               return (
-                <div key={course.id} style={{
-                  minWidth: '330px', maxWidth: '330px', flex: '0 0 auto', scrollSnapAlign: 'start',
-                  backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px',
-                  boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03)',
-                  display: 'flex', flexDirection: 'column', padding: '1.5rem', position: 'relative'
-                }}>
-                  {/* Top line: Title & initials block */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem' }}>
-                    <h3 style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0, color: '#333', lineHeight: 1.3, flex: 1 }}>
+                <div
+                  key={course.id}
+                  style={{
+                    minWidth: '300px', maxWidth: '340px', flex: '0 0 auto',
+                    scrollSnapAlign: 'start',
+                    backgroundColor: '#fff',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+                    display: 'flex', flexDirection: 'column',
+                    padding: '1.25rem',
+                    minHeight: '160px',
+                  }}
+                >
+                  {/* Title row */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem', flex: 1 }}>
+                    <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, color: '#222', lineHeight: 1.35, flex: 1 }}>
                       {course.nama}
                     </h3>
                     <div style={{
-                      width: '42px', height: '42px', backgroundColor: tagBg, color: '#fff',
+                      minWidth: '40px', height: '34px', backgroundColor: tagBg, color: '#fff',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      borderRadius: '6px', fontSize: '0.8rem', fontWeight: 800, flexShrink: 0
+                      borderRadius: '5px', fontSize: '0.72rem', fontWeight: 800, flexShrink: 0, padding: '0 6px',
+                      letterSpacing: '0.5px',
                     }}>
                       {course.kode}
                     </div>
                   </div>
 
-                  {/* Lecturer */}
-                  <p style={{ fontSize: '0.85rem', color: '#666', margin: '0.5rem 0 0 0' }}>
+                  {/* Teacher */}
+                  <p style={{ fontSize: '0.82rem', color: '#777', margin: '0.4rem 0 0 0' }}>
                     {course.dosen}
                   </p>
 
                   {/* Schedule */}
-                  <p style={{ fontSize: '0.8rem', color: '#888', margin: '1.5rem 0 1rem 0' }}>
-                    {course.hari !== 'Sesuai Jadwal' ? `${course.hari}, ${course.jam}` : 'Jadwal belum ditentukan'}
+                  <p style={{ fontSize: '0.8rem', color: '#999', margin: '1rem 0 0.75rem 0' }}>
+                    {course.hari !== 'Sesuai Jadwal' ? `${course.hari}, ${course.jam}` : ''}
                   </p>
 
-                  {/* Access button */}
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 'auto' }}>
-                    <Link href={`/mahasiswa/kuliah/${course.id}`} style={{
-                      display: 'flex', alignItems: 'center', gap: '0.35rem',
-                      textDecoration: 'none', color: '#1779ba', fontWeight: 600, fontSize: '0.85rem'
-                    }}>
+                  {/* Access link */}
+                  <div style={{ marginTop: 'auto', borderTop: '1px solid #f1f5f9', paddingTop: '0.75rem' }}>
+                    <Link
+                      href={`/mahasiswa/kuliah/${course.id}`}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                        color: '#1779ba', fontWeight: 600, fontSize: '0.875rem',
+                        textDecoration: 'none',
+                      }}
+                    >
                       Akses Kuliah <ArrowRight size={14} />
                     </Link>
                   </div>
@@ -309,153 +272,161 @@ export default function MahasiswaBerandaPage() {
             })}
           </div>
 
-          {/* Carousel Pagination Dots */}
-          <div style={{ display: 'flex', justifyContent: 'center', gap: '0.4rem', marginTop: '0.5rem' }}>
-            {courses.map((_, idx) => (
-              <span key={idx} style={{
-                width: '7px', height: '7px', borderRadius: '50%',
-                backgroundColor: idx === 0 ? '#1779ba' : '#ccc',
-                transition: 'background-color 0.2s'
-              }}></span>
-            ))}
-          </div>
+          {/* Dots */}
+          {courses.length > 1 && (
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '6px', marginTop: '0.75rem' }}>
+              {courses.map((_, idx) => (
+                <span
+                  key={idx}
+                  style={{
+                    width: '8px', height: '8px', borderRadius: '50%',
+                    backgroundColor: idx === carouselIdx ? '#0b668b' : '#ccc',
+                    display: 'inline-block', cursor: 'pointer',
+                    transition: 'background-color 0.2s',
+                  }}
+                  onClick={() => setCarouselIdx(idx)}
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Menu Grid (Matches circular ETHOL menu style exactly) */}
-      <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: '#333', margin: '1.5rem 0 1rem 0' }}>Menu</h2>
+      {/* ── Menu ───────────────────────────────────────────────────────────────── */}
+      <h2 style={{ fontSize: '1.15rem', fontWeight: 600, color: '#333', margin: '1.5rem 0 1rem 0' }}>Menu</h2>
       <div style={{
-        display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '1rem', marginBottom: '2.5rem'
+        backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px',
+        padding: '1.5rem', marginBottom: '2rem',
+        display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '1rem',
       }}>
-        {[
-          { title: 'Kelas Virtual', icon: Video, color: '#1e88e5', bg: '#eef8fc', border: '#b3e5fc', href: '/mahasiswa/matakuliah' },
-          { title: 'Materi Perkuliahan', icon: Layers, color: '#ff8f00', bg: '#fffbf0', border: '#ffe082', href: '/mahasiswa/materi-perkuliahan' },
-          { title: 'Lab Virtual', icon: Laptop, color: '#00897b', bg: '#e8f5e9', border: '#a5d6a7', href: 'https://vlab.ethol.pens.ac.id/', external: true },
-          { title: 'Praktikum', icon: BookOpen, color: '#3949ab', bg: '#e8eaf6', border: '#c5cae9', href: '/mahasiswa/praktikum' },
-          { title: 'Administrasi', icon: Globe, color: '#d81b60', bg: '#fce4ec', border: '#f8bbd0', href: 'https://online.mis.pens.ac.id/', external: true },
-          { title: 'Perpustakaan', icon: Book, color: '#7cbd2a', bg: '#f1f8e9', border: '#dcedc8', href: 'https://ebook.pens.ac.id/', external: true },
-        ].map((menu, i) => {
-          const content = (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '0.65rem' }}>
-              <div style={{ 
-                width: '74px', height: '74px', borderRadius: '50%', 
-                backgroundColor: menu.bg, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: menu.color, border: `1px solid ${menu.border}`,
-                boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)',
-                transition: 'all 0.2s ease-in-out'
+        {menuItems.map((menu, i) => {
+          const IconComp = menu.icon;
+          const inner = (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.6rem', cursor: 'pointer' }}>
+              <div style={{
+                width: '70px', height: '70px', borderRadius: '50%',
+                backgroundColor: menu.bg,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: menu.color,
+                transition: 'transform 0.2s, box-shadow 0.2s',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
               }}
               onMouseEnter={e => {
-                e.currentTarget.style.transform = 'scale(1.08)';
-                e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.05)';
+                (e.currentTarget as HTMLElement).style.transform = 'scale(1.08)';
+                (e.currentTarget as HTMLElement).style.boxShadow = '0 8px 16px rgba(0,0,0,0.12)';
               }}
               onMouseLeave={e => {
-                e.currentTarget.style.transform = 'scale(1)';
-                e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.02)';
-              }}>
-                <menu.icon size={30} />
+                (e.currentTarget as HTMLElement).style.transform = 'scale(1)';
+                (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 8px rgba(0,0,0,0.06)';
+              }}
+              >
+                <IconComp size={28} />
               </div>
-              <span style={{ fontSize: '0.85rem', fontWeight: 500, color: '#444', lineHeight: 1.2 }}>
-                {menu.title} {menu.external && <ExternalLink size={10} style={{ display: 'inline', opacity: 0.5 }} />}
+              <span style={{ fontSize: '0.8rem', color: menu.color, fontWeight: 500, textAlign: 'center', lineHeight: 1.2 }}>
+                {menu.title}{(menu as any).external && <ExternalLink size={9} style={{ marginLeft: 3, opacity: 0.6, verticalAlign: 'middle' }} />}
               </span>
             </div>
           );
-          if (menu.external) {
-            return <a key={i} href={menu.href} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>{content}</a>;
-          }
-          return <Link key={i} href={menu.href} style={{ textDecoration: 'none' }}>{content}</Link>;
+
+          return (menu as any).external
+            ? <a key={i} href={menu.href} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>{inner}</a>
+            : <Link key={i} href={menu.href} style={{ textDecoration: 'none' }}>{inner}</Link>;
         })}
       </div>
 
-      {/* Live Changes Summary Card */}
-      {totalLiveChanges > 0 && (
-        <div style={{ marginBottom: '1.5rem' }}>
-          <h2 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Bell size={18} style={{ color: 'var(--color-primary)' }} /> Perubahan Real-time
-          </h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.75rem' }}>
-            {kehadiranChanges.slice(0, 3).map((k, i) => (
-              <div key={`k-${i}`} className="card" style={{ padding: '0.75rem', borderLeft: '4px solid #10b981' }}>
-                <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 600 }}>
-                  Kehadiran: {k.persentase_kehadiran}%
-                </p>
-                <p style={{ margin: '0.25rem 0 0', fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
-                  Hadir {k.hadir}/{k.total_pertemuan} pertemuan
-                </p>
-              </div>
-            ))}
-            {nilaiChanges.slice(0, 3).map((n, i) => (
-              <div key={`n-${i}`} className="card" style={{ padding: '0.75rem', borderLeft: '4px solid #f59e0b' }}>
-                <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 600 }}>
-                  Nilai: {n.grade} ({n.nilai_akhir})
-                </p>
-                <p style={{ margin: '0.25rem 0 0', fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
-                  Update terbaru
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Tugas & Pengumuman */}
-      <div className="two-col-grid">
-        {/* Tugas */}
-        <div className="card">
-          <div className="card-header" style={{ padding: '1rem 1.25rem', backgroundColor: 'var(--color-surface)' }}>
-            <h3 className="card-title" style={{ fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <FileText size={18} style={{ color: 'var(--color-primary)' }} /> Tugas Terbaru
+      {/* ── Tugas & Pengumuman ──────────────────────────────────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
+        {/* Tugas Terbaru */}
+        <div style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '0.875rem 1.125rem', borderBottom: '1px solid #e2e8f0',
+            backgroundColor: '#fafafa',
+          }}>
+            <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#333' }}>
+              <FileText size={16} style={{ color: '#0b668b' }} /> Tugas Terbaru
             </h3>
-            {tugasTerbaru.length > 0 && <span style={{ fontSize: '0.75rem', fontWeight: 600, backgroundColor: '#FEF2F2', color: '#DC2626', padding: '0.2rem 0.6rem', borderRadius: '1rem' }}>{tugasTerbaru.length} Tugas</span>}
+            {tugasTerbaru.length > 0 && (
+              <span style={{ fontSize: '0.72rem', fontWeight: 700, backgroundColor: '#fef2f2', color: '#dc2626', padding: '0.2rem 0.55rem', borderRadius: '10px' }}>
+                {tugasTerbaru.length} Tugas
+              </span>
+            )}
           </div>
-          <div style={{ padding: '0', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ padding: 0 }}>
             {tugasTerbaru.length === 0 ? (
               <div style={{ padding: '2rem 1rem', textAlign: 'center' }}>
-                <CheckCircle size={32} style={{ color: '#10B981', margin: '0 auto 0.5rem', opacity: 0.5 }} />
-                <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.9rem', margin: 0 }}>Tidak ada tugas yang tertunda</p>
+                <CheckCircle size={28} style={{ color: '#10B981', margin: '0 auto 0.5rem', opacity: 0.5 }} />
+                <p style={{ color: '#94a3b8', fontSize: '0.85rem', margin: 0 }}>Tidak ada tugas tertunda</p>
               </div>
             ) : tugasTerbaru.map((tugas, i) => (
-              <div key={i} style={{ padding: '1rem 1.25rem', borderBottom: i < tugasTerbaru.length - 1 ? '1px solid var(--color-border)' : 'none', borderLeft: `3px solid ${tugas.color || 'var(--color-primary)'}` }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.25rem' }}>
-                  <h4 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 600 }}>{tugas.judul}</h4>
-                  <span style={{ fontSize: '0.7rem', fontWeight: 600, color: tugas.color || 'var(--color-primary)', backgroundColor: `${tugas.color}15` || 'var(--color-primary-light)', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>{tugas.status}</span>
+              <div
+                key={i}
+                style={{
+                  padding: '0.875rem 1.125rem',
+                  borderBottom: i < tugasTerbaru.length - 1 ? '1px solid #f1f5f9' : 'none',
+                  borderLeft: `3px solid ${tugas.color || '#0b668b'}`,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.2rem' }}>
+                  <h4 style={{ margin: 0, fontSize: '0.875rem', fontWeight: 600, color: '#333' }}>{tugas.judul}</h4>
+                  <span style={{ fontSize: '0.7rem', fontWeight: 600, color: tugas.color || '#0b668b', backgroundColor: `${tugas.color || '#0b668b'}15`, padding: '0.15rem 0.4rem', borderRadius: '4px', flexShrink: 0, marginLeft: '0.5rem' }}>
+                    {tugas.status}
+                  </span>
                 </div>
-                <p style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)', margin: '0 0 0.25rem' }}>{tugas.mata_kuliah?.nama || 'Mata Kuliah'}</p>
+                <p style={{ fontSize: '0.78rem', color: '#64748b', margin: '0 0 0.2rem' }}>{tugas.mata_kuliah?.nama || 'Mata Kuliah'}</p>
                 {tugas.deadline && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.75rem', color: '#DC2626', fontWeight: 500 }}>
-                    <Clock size={12} /> {new Date(tugas.deadline).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.73rem', color: '#dc2626', fontWeight: 500 }}>
+                    <Clock size={11} />
+                    {new Date(tugas.deadline).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
                   </div>
                 )}
               </div>
             ))}
           </div>
-          <Link href="/mahasiswa/tugas-online" style={{ display: 'block', textAlign: 'center', padding: '0.75rem', borderTop: '1px solid var(--color-border)', backgroundColor: 'var(--color-background)', fontSize: '0.8rem', fontWeight: 600, color: 'var(--color-primary)', textDecoration: 'none' }}>
+          <Link
+            href="/mahasiswa/tugas-online"
+            style={{
+              display: 'block', textAlign: 'center', padding: '0.7rem',
+              borderTop: '1px solid #e2e8f0', backgroundColor: '#fafafa',
+              fontSize: '0.8rem', fontWeight: 600, color: '#0b668b', textDecoration: 'none',
+            }}
+          >
             Lihat Semua Tugas
           </Link>
         </div>
 
         {/* Pengumuman */}
-        <div className="card">
-          <div className="card-header" style={{ padding: '1rem 1.25rem', backgroundColor: 'var(--color-surface)' }}>
-            <h3 className="card-title" style={{ fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <AlertCircle size={18} style={{ color: 'var(--color-primary)' }} /> Pengumuman
-            </h3>
+        <div style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '0.4rem',
+            padding: '0.875rem 1.125rem', borderBottom: '1px solid #e2e8f0',
+            backgroundColor: '#fafafa',
+          }}>
+            <Info size={16} style={{ color: '#0b668b' }} />
+            <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 600, color: '#333' }}>Pengumuman</h3>
           </div>
-          <div style={{ padding: '0', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ padding: 0 }}>
             {pengumuman.length === 0 ? (
               <div style={{ padding: '2rem 1rem', textAlign: 'center' }}>
-                <Book size={32} style={{ color: 'var(--color-text-muted)', margin: '0 auto 0.5rem', opacity: 0.5 }} />
-                <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.9rem', margin: 0 }}>Tidak ada pengumuman</p>
+                <Book size={28} style={{ color: '#94a3b8', margin: '0 auto 0.5rem', opacity: 0.5 }} />
+                <p style={{ color: '#94a3b8', fontSize: '0.85rem', margin: 0 }}>Tidak ada pengumuman</p>
               </div>
             ) : pengumuman.map((p, i) => (
-              <div key={i} style={{ padding: '1rem 1.25rem', borderBottom: i < pengumuman.length - 1 ? '1px solid var(--color-border)' : 'none' }}>
-                <h4 style={{ margin: '0 0 0.25rem 0', fontSize: '0.9rem', fontWeight: 600, color: 'var(--color-text-primary)' }}>{p.judul}</h4>
+              <div
+                key={i}
+                style={{
+                  padding: '0.875rem 1.125rem',
+                  borderBottom: i < pengumuman.length - 1 ? '1px solid #f1f5f9' : 'none',
+                }}
+              >
+                <h4 style={{ margin: '0 0 0.25rem 0', fontSize: '0.875rem', fontWeight: 600, color: '#333' }}>{p.judul}</h4>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', margin: 0 }}>
-                    {p.publisher} &bull; {new Date(p.tanggal).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  <p style={{ fontSize: '0.73rem', color: '#94a3b8', margin: 0 }}>
+                    {p.publisher} · {new Date(p.tanggal).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
                   </p>
                   {p.file_url && (
-                    <a href={p.file_url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', color: 'var(--color-primary)', fontSize: '0.75rem', fontWeight: 600, textDecoration: 'none' }}>
-                      <Download size={12} /> Unduh
+                    <a href={p.file_url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', color: '#0b668b', fontSize: '0.73rem', fontWeight: 600, textDecoration: 'none' }}>
+                      <Download size={11} /> Unduh
                     </a>
                   )}
                 </div>

@@ -153,7 +153,7 @@ CREATE TABLE IF NOT EXISTS public.nilai_mahasiswa (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   mahasiswa_id    UUID NOT NULL REFERENCES public.mahasiswa(id) ON DELETE CASCADE,
   semester_id     UUID NOT NULL REFERENCES public.semester(id) ON DELETE RESTRICT,
-  mata_kuliah_id  UUID NOT NULL REFERENCES public.mata_kuliah(id) ON DELETE RESTRICT,
+  mata_kuliah_id  UUID NOT NULL REFERENCES public.mata_kuliah(id) ON DELETE CASCADE,
   nilai_tugas     NUMERIC(5,2) CHECK (nilai_tugas >= 0 AND nilai_tugas <= 100),
   nilai_uts       NUMERIC(5,2) CHECK (nilai_uts >= 0 AND nilai_uts <= 100),
   nilai_uas       NUMERIC(5,2) CHECK (nilai_uas >= 0 AND nilai_uas <= 100),
@@ -176,7 +176,7 @@ CREATE TABLE IF NOT EXISTS public.kehadiran (
   id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   mahasiswa_id          UUID NOT NULL REFERENCES public.mahasiswa(id) ON DELETE CASCADE,
   semester_id           UUID NOT NULL REFERENCES public.semester(id) ON DELETE RESTRICT,
-  mata_kuliah_id        UUID NOT NULL REFERENCES public.mata_kuliah(id) ON DELETE RESTRICT,
+  mata_kuliah_id        UUID NOT NULL REFERENCES public.mata_kuliah(id) ON DELETE CASCADE,
   total_pertemuan       INT NOT NULL DEFAULT 0 CHECK (total_pertemuan >= 0),
   hadir                 INT NOT NULL DEFAULT 0 CHECK (hadir >= 0),
   izin                  INT NOT NULL DEFAULT 0 CHECK (izin >= 0),
@@ -797,7 +797,7 @@ CREATE TRIGGER trg_ethol_sessions_updated_at
 CREATE TABLE IF NOT EXISTS public.tugas (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   mahasiswa_id UUID NOT NULL REFERENCES public.mahasiswa(id) ON DELETE CASCADE,
-  mata_kuliah_id UUID REFERENCES public.mata_kuliah(id) ON DELETE SET NULL,
+  mata_kuliah_id UUID REFERENCES public.mata_kuliah(id) ON DELETE CASCADE,
   judul TEXT NOT NULL,
   deadline TIMESTAMPTZ,
   status TEXT NOT NULL DEFAULT 'Belum mengumpulkan',
@@ -883,7 +883,7 @@ BEGIN
   CREATE TABLE IF NOT EXISTS public.tugas (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     mahasiswa_id UUID NOT NULL REFERENCES public.mahasiswa(id) ON DELETE CASCADE,
-    mata_kuliah_id UUID REFERENCES public.mata_kuliah(id) ON DELETE SET NULL,
+    mata_kuliah_id UUID REFERENCES public.mata_kuliah(id) ON DELETE CASCADE,
     judul TEXT NOT NULL,
     deadline TIMESTAMPTZ,
     status TEXT NOT NULL DEFAULT 'Belum mengumpulkan',
@@ -950,8 +950,53 @@ BEGIN
     ALTER TABLE public.mata_kuliah ADD COLUMN IF NOT EXISTS jam TEXT DEFAULT 'Sesuai Jadwal';
     ALTER TABLE public.mata_kuliah ADD COLUMN IF NOT EXISTS ruang TEXT DEFAULT 'Kelas Virtual / Offline';
     ALTER TABLE public.mata_kuliah ADD COLUMN IF NOT EXISTS ethol_course_id TEXT UNIQUE;
+    ALTER TABLE public.mata_kuliah DROP CONSTRAINT IF EXISTS mata_kuliah_kode_key;
   EXCEPTION WHEN OTHERS THEN NULL;
   END;
+
+  -- Self-healing: automatically update get_or_create_mahasiswa definition next time sync runs
+  EXECUTE $dyn$
+    CREATE OR REPLACE FUNCTION public.get_or_create_mahasiswa(
+      p_user_id UUID,
+      p_nrp TEXT,
+      p_nama TEXT,
+      p_kelas TEXT,
+      p_prodi TEXT,
+      p_angkatan INT,
+      p_dosen_wali_id UUID
+    )
+    RETURNS UUID AS $inner$
+    DECLARE
+      v_mhs_id UUID;
+    BEGIN
+      -- First try to find by NRP
+      SELECT id INTO v_mhs_id FROM public.mahasiswa WHERE nrp = p_nrp;
+      
+      -- If not found, try to find by user_id to prevent duplicate key violation
+      IF v_mhs_id IS NULL THEN
+        SELECT id INTO v_mhs_id FROM public.mahasiswa WHERE user_id = p_user_id;
+      END IF;
+      
+      IF v_mhs_id IS NULL THEN
+        INSERT INTO public.mahasiswa (user_id, dosen_wali_id, nrp, nama_lengkap, kelas, prodi, angkatan)
+        VALUES (p_user_id, p_dosen_wali_id, p_nrp, p_nama, p_kelas, p_prodi, p_angkatan)
+        RETURNING id INTO v_mhs_id;
+      ELSE
+        UPDATE public.mahasiswa 
+        SET 
+          nrp = p_nrp,
+          nama_lengkap = p_nama,
+          kelas = p_kelas,
+          prodi = p_prodi,
+          dosen_wali_id = p_dosen_wali_id,
+          user_id = p_user_id
+        WHERE id = v_mhs_id;
+      END IF;
+      
+      RETURN v_mhs_id;
+    END;
+    $inner$ LANGUAGE plpgsql SECURITY DEFINER;
+  $dyn$;
 END;
 $$;
 
@@ -1046,7 +1091,13 @@ RETURNS UUID AS $$
 DECLARE
   v_mhs_id UUID;
 BEGIN
+  -- First try to find by NRP
   SELECT id INTO v_mhs_id FROM public.mahasiswa WHERE nrp = p_nrp;
+  
+  -- If not found, try to find by user_id to prevent duplicate key violation
+  IF v_mhs_id IS NULL THEN
+    SELECT id INTO v_mhs_id FROM public.mahasiswa WHERE user_id = p_user_id;
+  END IF;
   
   IF v_mhs_id IS NULL THEN
     INSERT INTO public.mahasiswa (user_id, dosen_wali_id, nrp, nama_lengkap, kelas, prodi, angkatan)
@@ -1055,10 +1106,12 @@ BEGIN
   ELSE
     UPDATE public.mahasiswa 
     SET 
+      nrp = p_nrp,
       nama_lengkap = p_nama,
       kelas = p_kelas,
       prodi = p_prodi,
-      dosen_wali_id = p_dosen_wali_id
+      dosen_wali_id = p_dosen_wali_id,
+      user_id = p_user_id
     WHERE id = v_mhs_id;
   END IF;
   
@@ -1113,7 +1166,7 @@ CREATE TRIGGER trg_ujian_updated_at
 CREATE TABLE IF NOT EXISTS public.quiz_attempts (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   mahasiswa_id UUID NOT NULL REFERENCES public.mahasiswa(id) ON DELETE CASCADE,
-  mata_kuliah_id UUID REFERENCES public.mata_kuliah(id) ON DELETE SET NULL,
+  mata_kuliah_id UUID REFERENCES public.mata_kuliah(id) ON DELETE CASCADE,
   kuis_id INT NOT NULL,
   judul TEXT NOT NULL,
   skor NUMERIC(5,2),
@@ -1258,7 +1311,7 @@ BEGIN
   CREATE TABLE IF NOT EXISTS public.quiz_attempts (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     mahasiswa_id UUID NOT NULL REFERENCES public.mahasiswa(id) ON DELETE CASCADE,
-    mata_kuliah_id UUID REFERENCES public.mata_kuliah(id) ON DELETE SET NULL,
+    mata_kuliah_id UUID REFERENCES public.mata_kuliah(id) ON DELETE CASCADE,
     kuis_id INT NOT NULL, judul TEXT NOT NULL,
     skor NUMERIC(5,2), waktu_mulai TIMESTAMPTZ, waktu_selesai TIMESTAMPTZ,
     status TEXT DEFAULT 'belum', raw_data JSONB,
@@ -1285,3 +1338,49 @@ BEGIN
   BEGIN ALTER TABLE public.mahasiswa ADD COLUMN IF NOT EXISTS no_hp TEXT; EXCEPTION WHEN OTHERS THEN NULL; END;
 END;
 $$;
+
+ - -   R L S   P O L I C I E S   F O R   F R O N T E N D   D A T A   R E N D E R I N G   - - 
+ - -   B e c a u s e   R L S   i s   e n a b l e d ,   t h e   f r o n t e n d   c a n n o t   r e a d   t h e   d a t a   w i t h o u t   p o l i c i e s . 
+ C R E A T E   P O L I C Y   \  
+ A l l o w  
+ a u t h e n t i c a t e d  
+ r e a d  
+ o n  
+ m a h a s i s w a \   O N   p u b l i c . m a h a s i s w a   F O R   S E L E C T   T O   a u t h e n t i c a t e d   U S I N G   ( t r u e ) ; 
+ C R E A T E   P O L I C Y   \ A l l o w  
+ a u t h e n t i c a t e d  
+ r e a d  
+ o n  
+ k e h a d i r a n \   O N   p u b l i c . k e h a d i r a n   F O R   S E L E C T   T O   a u t h e n t i c a t e d   U S I N G   ( t r u e ) ; 
+ C R E A T E   P O L I C Y   \ A l l o w  
+ a u t h e n t i c a t e d  
+ r e a d  
+ o n  
+ m a t a _ k u l i a h \   O N   p u b l i c . m a t a _ k u l i a h   F O R   S E L E C T   T O   a u t h e n t i c a t e d   U S I N G   ( t r u e ) ; 
+ C R E A T E   P O L I C Y   \ A l l o w  
+ a u t h e n t i c a t e d  
+ r e a d  
+ o n  
+ s e m e s t e r \   O N   p u b l i c . s e m e s t e r   F O R   S E L E C T   T O   a u t h e n t i c a t e d   U S I N G   ( t r u e ) ; 
+ C R E A T E   P O L I C Y   \ A l l o w  
+ a u t h e n t i c a t e d  
+ r e a d  
+ o n  
+ n i l a i _ m a h a s i s w a \   O N   p u b l i c . n i l a i _ m a h a s i s w a   F O R   S E L E C T   T O   a u t h e n t i c a t e d   U S I N G   ( t r u e ) ; 
+ C R E A T E   P O L I C Y   \ A l l o w  
+ a u t h e n t i c a t e d  
+ r e a d  
+ o n  
+ t u g a s \   O N   p u b l i c . t u g a s   F O R   S E L E C T   T O   a u t h e n t i c a t e d   U S I N G   ( t r u e ) ; 
+ C R E A T E   P O L I C Y   \ A l l o w  
+ a u t h e n t i c a t e d  
+ r e a d  
+ o n  
+ p e n g u m u m a n \   O N   p u b l i c . p e n g u m u m a n   F O R   S E L E C T   T O   a u t h e n t i c a t e d   U S I N G   ( t r u e ) ; 
+ C R E A T E   P O L I C Y   \ A l l o w  
+ a u t h e n t i c a t e d  
+ r e a d  
+ o n  
+ u s e r s \   O N   p u b l i c . u s e r s   F O R   S E L E C T   T O   a u t h e n t i c a t e d   U S I N G   ( t r u e ) ; 
+  
+ 

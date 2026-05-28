@@ -3,6 +3,7 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { createClient } from '@supabase/supabase-js';
 import { SignJWT } from 'jose';
+import * as etholApi from '../../../../lib/ethol-api';
 
 const CAS_BASE = 'https://login.pens.ac.id/cas';
 const ETHOL_BASE = 'https://ethol.pens.ac.id';
@@ -259,21 +260,78 @@ async function followRedirectChain(startUrl: string, initialCookies: Record<stri
   return { success: true as const, etholCookieStr: joinCookies(etholCookies) };
 }
 
+async function casLoginViaPuppeteer(username: string, password: string) {
+  console.log('[CAS-PUPPETEER] Mencoba login menggunakan headless browser...');
+  try {
+    let puppeteer;
+    try {
+      puppeteer = require('puppeteer');
+    } catch (e) {
+      console.log('[CAS-PUPPETEER] Puppeteer tidak tersedia. Pastikan Anda menjalankan "npm install puppeteer"');
+      return { success: false as const, message: 'Modul puppeteer tidak ditemukan. Tidak dapat mengekstrak JWT.' };
+    }
+
+    const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+    const page = await browser.newPage();
+    
+    // Buka halaman login CAS yang diarahkan ke layanan ETHOL
+    await page.goto(`${CAS_BASE}/login?service=${encodeURIComponent(ETHOL_SERVICE)}`, { waitUntil: 'networkidle2' });
+    
+    // Masukkan kredensial
+    await page.type('input[name="username"]', username);
+    await page.type('input[name="password"]', password);
+    
+    // Submit form dan tunggu redirect ke ETHOL beranda
+    await Promise.all([
+      page.click('button[type="submit"], input[type="submit"], .btn-submit'),
+      page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => null)
+    ]);
+    
+    // Cek apakah login gagal dengan membaca alert di halaman CAS
+    const url = page.url();
+    if (url.includes('login.pens.ac.id')) {
+      const errorMsg = await page.evaluate(() => {
+        const alert = document.querySelector('.alert-danger, #status, [class*="error"]');
+        return alert ? alert.textContent?.trim() : null;
+      });
+      await browser.close();
+      return { success: false as const, message: errorMsg || 'NetID atau Password salah.' };
+    }
+    
+    // Tunggu ETHOL SPA memproses token dan menyimpannya ke localStorage
+    let token = null;
+    for (let i = 0; i < 15; i++) {
+      token = await page.evaluate(() => localStorage.getItem('token'));
+      if (token) break;
+      await new Promise(r => setTimeout(r, 1000));
+    }
+    
+    // Ambil semua cookies untuk sesi tambahan (seperti Moodle)
+    const cookies = await page.cookies();
+    const etholCookies: Record<string, string> = {};
+    cookies.forEach((c: any) => etholCookies[c.name] = c.value);
+    
+    await browser.close();
+    
+    if (token) {
+      console.log('[CAS-PUPPETEER] ✓ Berhasil mendapatkan token JWT dan cookies dari browser!');
+      // Append JWT to cookies so it gets saved in user_ethol_sessions and extractable later
+      etholCookies['jwt_token'] = token;
+      return { success: true as const, etholCookieStr: joinCookies(etholCookies), jwt: token };
+    } else {
+      console.log('[CAS-PUPPETEER] Gagal menemukan token di localStorage.');
+      return { success: false as const, message: 'Gagal mengekstrak JWT token dari ETHOL. Login mungkin gagal.' };
+    }
+  } catch (e: any) {
+    console.error('[CAS-PUPPETEER] Error:', e.message);
+    return { success: false as const, message: 'Terjadi kesalahan saat memproses login.' };
+  }
+}
+
 async function casLogin(netId: string, password: string) {
   const username = netId.trim();
   console.log(`[CAS] Menggunakan NetID lengkap untuk CAS: '${username}'`);
-
-  try {
-    const restResult = await casLoginViaRest(username, password) as any;
-    if (restResult && restResult.restAvailable !== false) {
-      return restResult;
-    }
-    console.log('[CAS] REST API tidak tersedia, beralih ke form login...');
-  } catch (e) {
-    console.log(`[CAS] REST API error: ${(e as Error).message}, beralih ke form login...`);
-  }
-
-  return await casLoginViaForm(username, password);
+  return await casLoginViaPuppeteer(username, password);
 }
 
 async function scrapeProfile(cookieStr: string) {
@@ -392,13 +450,44 @@ async function scrapeKehadiran(cookieStr: string) {
   return list;
 }
 
-async function scrapeTugas(cookieStr: string) {
-  const list: { judul: string; matkul: string; deadline: string | null; status: string; sumber_url: string }[] = [];
+// ─── Scraping: Tugas (Assignments) ────────────────────────────────────────────
+async function scrapeTugas(cookieStr: string, jwt: string | null, tahun: number, semester: number) {
+  const list: {
+    judul: string;
+    matkul: string;
+    deadline: string | null;
+    status: string;
+    sumber_url: string;
+  }[] = [];
+
+  if (jwt) {
+    try {
+      console.log(`[CAS-API] Tugas querying with params ${tahun}-${semester}...`);
+      const data = await etholApi.getLatestAssignments(jwt, tahun, semester);
+      if (Array.isArray(data) && data.length > 0) {
+        data.forEach((t: any) => {
+          list.push({
+            judul: (t.title || t.judul || t.judul_tugas || 'Tugas').substring(0, 255),
+            matkul: (t.matakuliah || t.nama_matakuliah || 'Dari API').substring(0, 100),
+            deadline: (t.deadline || t.tgl_deadline || null)?.substring(0, 100),
+            status: 'Belum mengumpulkan',
+            sumber_url: `${ETHOL_BASE}/tugas`,
+          });
+        });
+        console.log(`[CAS-API] Tugas found: ${list.length}`);
+        if (list.length > 0) return list;
+      }
+    } catch (e: any) {
+      console.log(`[CAS-API] Tugas Error: ${e.message}`);
+    }
+  }
+
   const urls = [
     `${ETHOL_BASE}/calendar/view.php?view=upcoming`,
     `${ETHOL_BASE}/my/`,
     `${ETHOL_BASE}/mahasiswa/beranda`,
   ];
+
   for (const url of urls) {
     try {
       await rnd(300, 600);
@@ -409,28 +498,72 @@ async function scrapeTugas(cookieStr: string) {
       if (res.status !== 200) continue;
       const $ = cheerio.load(res.data as string);
       if ($('input[name="username"]').length) continue;
+
       $('[data-type="assign"], .event[href*="assign"], .timeline-event-list-item').each((_, el) => {
         const judul = $(el).find('.description, .event-name, a').first().text().trim();
         const deadlineRaw = $(el).find('.date, time, .description').text().trim();
         const matkul = $(el).find('.course, .mod-name, .small').text().trim() || 'Umum';
         const href = $(el).find('a').attr('href') || url;
         if (judul && judul.length > 3) {
-          list.push({ judul: judul.substring(0, 255), matkul: matkul.substring(0, 100), deadline: deadlineRaw || null, status: 'Belum mengumpulkan', sumber_url: href.startsWith('http') ? href : `${ETHOL_BASE}${href}` });
+          list.push({
+            judul: judul.substring(0, 255),
+            matkul: matkul.substring(0, 100),
+            deadline: deadlineRaw ? deadlineRaw.substring(0, 100) : null,
+            status: 'Belum mengumpulkan',
+            sumber_url: href.startsWith('http') ? href : `${ETHOL_BASE}${href}`,
+          });
         }
       });
+
       if (list.length) break;
-    } catch (e) { console.log(`[SCRAPE] Tugas ${url}: ${(e as Error).message}`); }
+    } catch (e) {
+      console.log(`[CAS-SCRAPE] Tugas ${url}: ${(e as Error).message}`);
+    }
   }
   return list;
 }
 
-async function scrapePengumuman(cookieStr: string) {
-  const list: { judul: string; publisher: string; tanggal: string; isi: string; file_url: string | null; file_name: string | null; sumber_url: string }[] = [];
+// ─── Scraping: Pengumuman ──────────────────────────────────────────────────────
+async function scrapePengumuman(cookieStr: string, jwt: string | null) {
+  const list: {
+    judul: string;
+    publisher: string;
+    tanggal: string;
+    isi: string;
+    file_url: string | null;
+    file_name: string | null;
+    sumber_url: string;
+  }[] = [];
+
+  if (jwt) {
+    try {
+      const data = await etholApi.getLatestAnnouncements(jwt);
+      if (Array.isArray(data) && data.length > 0) {
+        data.forEach((p: any) => {
+          list.push({
+            judul: (p.judul || 'Pengumuman').substring(0, 255),
+            publisher: (p.namaPegawai || p.nama_pegawai || 'PENS').substring(0, 100),
+            tanggal: (p.waktu_indo || p.tgl_indo || new Date().toISOString()).substring(0, 50),
+            isi: (p.isiPengumuman || p.pengumuman || p.isi_pengumuman || '').substring(0, 500),
+            file_url: p.file_url ? (p.file_url.startsWith('http') ? p.file_url : `${ETHOL_BASE}${p.file_url}`) : null,
+            file_name: null,
+            sumber_url: `${ETHOL_BASE}/pengumuman`,
+          });
+        });
+        console.log(`[CAS-API] Pengumuman found: ${list.length}`);
+        if (list.length > 0) return list;
+      }
+    } catch (e: any) {
+      console.log(`[CAS-API] Pengumuman Error: ${e.message}`);
+    }
+  }
+
   const urls = [
     `${ETHOL_BASE}/mahasiswa/beranda`,
     `${ETHOL_BASE}/my/`,
     `${ETHOL_BASE}/news/index.php`,
   ];
+
   for (const url of urls) {
     try {
       await rnd(300, 600);
@@ -441,85 +574,183 @@ async function scrapePengumuman(cookieStr: string) {
       if (res.status !== 200) continue;
       const $ = cheerio.load(res.data as string);
       if ($('input[name="username"]').length) continue;
+
       $('.forumpost, .post-body, [data-region="article"]').each((_, el) => {
         const judul = $(el).find('.subject, h3, h4, .post-subject').first().text().trim();
         const publisher = $(el).find('.author, .user-info-picture, .username').first().text().trim() || 'BAAK PENS';
         const tanggal = $(el).find('.date, time, .posting').first().text().trim() || new Date().toISOString().split('T')[0];
         const isi = $(el).find('.content, .posting, p').first().text().trim().substring(0, 500);
         const fileHref = $(el).find('a[href*="file"], a[href*="download"]').attr('href');
+        const fileName = fileHref ? fileHref.split('/').pop() || null : null;
         if (judul && judul.length > 3) {
-          list.push({ judul: judul.substring(0, 255), publisher: publisher.substring(0, 100), tanggal, isi, file_url: fileHref ? (fileHref.startsWith('http') ? fileHref : `${ETHOL_BASE}${fileHref}`) : null, file_name: fileHref ? fileHref.split('/').pop() || null : null, sumber_url: url });
+          list.push({
+            judul: judul.substring(0, 255),
+            publisher: publisher.substring(0, 100),
+            tanggal: tanggal.substring(0, 50),
+            isi,
+            file_url: fileHref ? (fileHref.startsWith('http') ? fileHref : `${ETHOL_BASE}${fileHref}`) : null,
+            file_name: fileName,
+            sumber_url: url,
+          });
         }
       });
+
       if (list.length) break;
-    } catch (e) { console.log(`[SCRAPE] Pengumuman ${url}: ${(e as Error).message}`); }
+    } catch (e) {
+      console.log(`[CAS-SCRAPE] Pengumuman ${url}: ${(e as Error).message}`);
+    }
   }
   return list;
 }
 
-async function scrapeMatakuliahDetail(cookieStr: string) {
+// ─── Scraping: Mata Kuliah Detail ────────────────────────────────────────────────
+async function scrapeMatakuliahDetail(cookieStr: string, jwt: string | null, tahun: number, semester: number) {
   const list: { nama: string; dosen: string; hari: string; jam: string; ruang: string; kode: string }[] = [];
+
+  // ── Layer 1: Use ETHOL REST API with JWT token ──
+  if (jwt) {
+    try {
+      console.log(`[CAS-API] Layer 1 (JWT) querying courses for ${tahun}-${semester}...`);
+      let data = await etholApi.getCourses(jwt, tahun, semester);
+
+      if (!Array.isArray(data) || data.length === 0) {
+        console.log(`[CAS-API] No courses in ${tahun}-${semester}, trying fallbacks...`);
+        const fallbacks = [
+          { t: 2025, s: 2 },
+          { t: 2025, s: 1 },
+          { t: 2024, s: 2 },
+          { t: 2024, s: 1 }
+        ];
+        for (const fb of fallbacks) {
+          if (fb.t === tahun && fb.s === semester) continue;
+          try {
+            console.log(`[CAS-API] Querying courses for fallback ${fb.t}-${fb.s}...`);
+            const fbData = await etholApi.getCourses(jwt, fb.t, fb.s);
+            if (Array.isArray(fbData) && fbData.length > 0) {
+              data = fbData;
+              console.log(`[CAS-API] Fallback succeeded: found ${data.length} courses in ${fb.t}-${fb.s}`);
+              break;
+            }
+          } catch (e: any) {
+            console.log(`[CAS-API] Fallback error for ${fb.t}-${fb.s}: ${e.message}`);
+          }
+        }
+      }
+
+      if (Array.isArray(data) && data.length > 0) {
+        data.forEach((c: any) => {
+          let nameVal = '';
+          if (c.matakuliah) {
+            nameVal = typeof c.matakuliah === 'object' ? (c.matakuliah.nama || c.matakuliah.name || '') : c.matakuliah;
+          } else {
+            nameVal = c.nama || c.name || '';
+          }
+          if (!nameVal) return;
+
+          list.push({
+            nama: nameVal,
+            dosen: c.dosen || c.dosen_pengampu || 'Dosen Pengampu',
+            hari: c.hari || 'Sesuai Jadwal',
+            jam: c.jam_mulai ? `${c.jam_mulai}${c.jam_selesai ? ` - ${c.jam_selesai}` : ''}` : 'Sesuai Jadwal',
+            ruang: c.ruang || c.tempat || 'Kelas Virtual / Offline',
+            kode: c.kode || c.kode_matakuliah || '',
+          });
+        });
+        console.log(`[CAS-API] Layer 1 (JWT) Success: ${list.length} courses found`);
+        if (list.length > 0) return list;
+      }
+    } catch (e: any) {
+      console.log(`[CAS-API] Layer 1 JWT Error: ${e.message}`);
+    }
+  }
+
+  // ── Layer 2: Direct ETHOL API call with cookie (and JWT token in header if present) ──
+  const apiEndpoints = [
+    { url: `${ETHOL_BASE}/api/kuliah?tahun=${tahun}&semester=${semester}`, method: 'GET' },
+    { url: `${ETHOL_BASE}/api/kuliah?tahun=2025&semester=2`, method: 'GET' },
+    { url: `${ETHOL_BASE}/api/kuliah?tahun=2025&semester=1`, method: 'GET' },
+    { url: `${ETHOL_BASE}/api/kuliah?tahun=2024&semester=2`, method: 'GET' },
+    { url: `${ETHOL_BASE}/api/jadwal/jadwal-online`, method: 'GET' },
+  ];
+
+  for (const ep of apiEndpoints) {
+    try {
+      await rnd(200, 400);
+      const res = await axios.get(ep.url, {
+        headers: {
+          'User-Agent': UA,
+          'Cookie': cookieStr,
+          'Accept': 'application/json, text/plain, */*',
+          'Referer': `${ETHOL_BASE}/mahasiswa/matakuliah`,
+          'X-Requested-With': 'XMLHttpRequest',
+          ...(jwt ? { 'token': jwt } : {}),
+        },
+        timeout: 15000,
+        maxRedirects: 5,
+        validateStatus: (s) => s < 500,
+      });
+
+      if (res.status === 200 && res.data) {
+        let courses = res.data;
+        if (!Array.isArray(courses)) {
+          courses = courses.data || courses.courses || courses.kuliah || courses.matakuliah || [];
+        }
+
+        if (Array.isArray(courses) && courses.length > 0) {
+          courses.forEach((c: any) => {
+            let nameVal = '';
+            if (c.matakuliah) {
+              nameVal = typeof c.matakuliah === 'object' ? (c.matakuliah.nama || c.matakuliah.name || '') : c.matakuliah;
+            } else {
+              nameVal = c.nama || c.name || c.mata_kuliah || c.course_name || '';
+            }
+            if (!nameVal || list.find(x => x.nama === nameVal)) return;
+
+            list.push({
+              nama: nameVal,
+              dosen: c.dosen || c.dosen_pengampu || c.nama_dosen || c.lecturer || 'Dosen Pengampu',
+              hari: c.hari || 'Sesuai Jadwal',
+              jam: c.jam_mulai ? `${c.jam_mulai}${c.jam_selesai ? ` - ${c.jam_selesai}` : ''}` : (c.jam || c.waktu || 'Sesuai Jadwal'),
+              ruang: c.ruang || c.tempat || c.room || 'Sesuai ETHOL',
+              kode: c.kode || c.kode_matakuliah || c.kode_mk || '',
+            });
+          });
+          console.log(`[CAS-API] Layer 2 (Cookie API ${ep.url}): ${list.length} courses`);
+          if (list.length > 0) return list;
+        }
+      }
+    } catch (e: any) {
+      console.log(`[CAS-API] Layer 2 Error (${ep.url}): ${e.message}`);
+    }
+  }
+
+  // ── Layer 3: Moodle enrolled courses via /my/ ──
   try {
     await rnd(300, 600);
-    const res = await axios.get(`${ETHOL_BASE}/mahasiswa/matakuliah`, {
+    const res = await axios.get(`${ETHOL_BASE}/my/`, {
       headers: { ...HEADERS, Cookie: cookieStr, Referer: `${ETHOL_BASE}/` },
       timeout: 20000, maxRedirects: 5, validateStatus: (s) => s < 500,
     });
     if (res.status === 200) {
       const $ = cheerio.load(res.data as string);
-
-      // Look for cards that contain "Akses Kuliah"
-      $('*').each((_, el) => {
-        const textStr = $(el).text();
-        if ($(el).children().length > 10) return; // ignore massive containers
-        if (!textStr.toLowerCase().includes('akses kuliah')) return;
-        if ($(el).prop('tagName')?.toLowerCase() === 'a') return; // ignore the button itself
-
-        // Find the closest container card
-        if (!$(el).hasClass('card') && !$(el).css('border') && !$(el).hasClass('col-md-6')) {
-          // We might be looking at a generic div. We want the outer card wrapper.
-          // If we're inside a card, let the card handle it.
-          if ($(el).parents('.card').length > 0) return;
-        }
-
-        const lines = textStr.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-        let nama = '';
-        let dosen = 'Dosen Pengampu';
-        let jadwal = 'Sesuai Jadwal';
-        let kode = '';
-
-        for (let i = 0; i < lines.length; i++) {
-          const line = lines[i];
-          if (line.toLowerCase().includes('akses kuliah')) continue;
-
-          if (/^(Senin|Selasa|Rabu|Kamis|Jumat|Sabtu|Minggu),\s*\d{2}:\d{2}/i.test(line)) {
-            jadwal = line;
-          } else if (line.length <= 5 && line === line.toUpperCase() && !kode) {
-            kode = line;
-          } else if (!nama && line.length > 4) {
-            nama = line;
-          } else if (nama && line.length > 5 && dosen === 'Dosen Pengampu') {
-            dosen = line;
+      if ($('input[name="username"]').length === 0) {
+        $('.course-listitem, .coursebox, [data-region="course-content"], .courses .card, .block_myoverview .card').each((_, el) => {
+          const nama = $(el).find('.coursename, .course-title, h4, h3, .card-title, .multiline a').first().text().trim();
+          const dosen = $(el).find('.teacher, .course-teacher, .teachers, .text-muted').first().text().trim() || 'Dosen Pengampu';
+          if (nama && nama.length > 3 && nama.length < 100 && !list.find(x => x.nama === nama)) {
+            list.push({ nama, dosen, hari: 'Sesuai Jadwal', jam: 'Sesuai Jadwal', ruang: 'Sesuai ETHOL', kode: '' });
           }
-        }
-
-        let hari = 'Sesuai Jadwal', jam = 'Sesuai Jadwal';
-        if (jadwal !== 'Sesuai Jadwal') {
-          const pts = jadwal.split(',');
-          if (pts.length >= 2) { hari = pts[0].trim(); jam = pts[1].trim(); }
-        }
-
-        // Avoid adding the entire page text by checking if nama is reasonable
-        if (nama && nama.length < 100 && !list.find(x => x.nama === nama)) {
-          list.push({ nama, dosen, hari, jam, ruang: 'Sesuai ETHOL', kode });
-        }
-      });
+        });
+        console.log(`[CAS-SCRAPE] Layer 3 (Moodle /my/): ${list.length} courses`);
+      }
     }
-  } catch (e) { console.log(`[SCRAPE] Matakuliah: ${(e as Error).message}`); }
+  } catch (e) {
+    console.log(`[CAS-SCRAPE] Layer 3 Error: ${(e as Error).message}`);
+  }
   return list;
 }
 
-async function syncToSupabase(supa: any, netId: string, profile: Awaited<ReturnType<typeof scrapeProfile>>, nilaiList: Awaited<ReturnType<typeof scrapeNilai>>, kehadiranList: Awaited<ReturnType<typeof scrapeKehadiran>>, tugasList: Awaited<ReturnType<typeof scrapeTugas>>, pengumumanList: Awaited<ReturnType<typeof scrapePengumuman>>, matkulDetailList: Awaited<ReturnType<typeof scrapeMatakuliahDetail>>, etholCookieStr: string) {
+async function syncToSupabase(supa: any, netId: string, profile: Awaited<ReturnType<typeof scrapeProfile>>, nilaiList: Awaited<ReturnType<typeof scrapeNilai>>, kehadiranList: Awaited<ReturnType<typeof scrapeKehadiran>>, tugasList: Awaited<ReturnType<typeof scrapeTugas>>, pengumumanList: Awaited<ReturnType<typeof scrapePengumuman>>, matkulDetailList: Awaited<ReturnType<typeof scrapeMatakuliahDetail>>, jadwalList: any[], etholCookieStr: string) {
   let email = netId.trim();
   if (!email.includes('@')) {
     email = /^\d+$/.test(email) ? `${email}@mhs.pens.ac.id` : `${email}@it.student.pens.ac.id`;
@@ -574,17 +805,29 @@ async function syncToSupabase(supa: any, netId: string, profile: Awaited<ReturnT
   );
 
   if (role === 'mahasiswa') {
-    // 1. Get or Create Mahasiswa via RPC
-    const { data: mhsId, error: errMhs } = await supa.rpc('get_or_create_mahasiswa', {
-      p_user_id: uid,
-      p_nrp: nrp,
-      p_nama: fullName,
-      p_kelas: kelas,
-      p_prodi: prodi,
-      p_angkatan: angkatan,
-      p_dosen_wali_id: null
-    });
-    if (errMhs) console.error('[SYNC] Error RPC get_or_create_mahasiswa:', errMhs);
+    let mhsId = null;
+    try {
+      let { data: mhs } = await supa.from('mahasiswa').select('id').eq('nrp', nrp).maybeSingle();
+      if (!mhs) {
+        const { data: mhsByUid } = await supa.from('mahasiswa').select('id').eq('user_id', uid).maybeSingle();
+        mhs = mhsByUid;
+      }
+      
+      if (!mhs) {
+        const { data: newMhs, error: insErr } = await supa.from('mahasiswa').insert({
+          user_id: uid, nrp, nama_lengkap: fullName, kelas, prodi, angkatan, dosen_wali_id: null
+        }).select('id').maybeSingle();
+        if (newMhs) mhsId = newMhs.id;
+        else console.error('[SYNC] Failed to insert mahasiswa:', insErr);
+      } else {
+        mhsId = mhs.id;
+        await supa.from('mahasiswa').update({
+          nrp, nama_lengkap: fullName, kelas, prodi, user_id: uid
+        }).eq('id', mhsId);
+      }
+    } catch (e: any) {
+      console.error('[SYNC] Error getting/creating mahasiswa:', e.message);
+    }
     
     const { data: sem } = await supa.from('semester').select('id').eq('is_aktif', true).maybeSingle();
     
@@ -605,6 +848,16 @@ async function syncToSupabase(supa: any, netId: string, profile: Awaited<ReturnT
       // Prepare Batch Data
       const batchNilai = [];
       const batchKehadiran = [];
+
+      // Update Jadwal in Mata Kuliah table
+      for (const j of jadwalList) {
+        await getOrCreateMatkul(supa, j.matkul, prodi, {
+          hari: j.hari,
+          jam: j.jam,
+          ruang: j.ruang,
+          dosen: j.dosen !== 'Dosen Pengampu' ? j.dosen : undefined
+        });
+      }
 
       for (const n of nilaiList) {
         const mk = await getOrCreateMatkul(supa, n.courseName, prodi);
@@ -685,7 +938,7 @@ async function getOrCreateMatkul(supa: any, nama: string, prodi: string, extra?:
     }
     return ex.id;
   }
-  const kode = extra?.kode || nama.toUpperCase().replace(/[^A-Z0-9]/g, '').substring(0, 10) || `MK${Date.now()}`;
+  const kode = extra?.kode || (nama.toUpperCase().replace(/[^A-Z0-9]/g, '').substring(0, 8) + Math.floor(Math.random()*10000)) || `MK${Date.now()}`;
   const { data: c, error } = await supa.from('mata_kuliah').insert({
     kode, nama, sks: 3, prodi, jurusan: 'Teknik Informatika', jenis: 'wajib',
     ...upData
@@ -746,18 +999,44 @@ export async function POST(request: NextRequest) {
 
     console.log('[CAS] ✓ Login berhasil! Mulai scraping ETHOL (profil + nilai + kehadiran + tugas + pengumuman)...');
 
-    const [profile, nilaiList, kehadiranList, tugasList, pengumumanList, matkulDetailList] = await Promise.all([
+    // ── Get JWT Token ──
+    const jwt = casResult.jwt || await etholApi.getEtholJwtToken(casResult.etholCookieStr);
+    if (jwt) console.log('[CAS] JWT token successfully extracted for API calls');
+    else console.log('[CAS] Failed to get JWT token, falling back to HTML scraping');
+
+    // ── Fetch active semester beforehand to get academic parameters ──
+    let tahun = 2025;
+    let academicSemester = 2;
+    const { data: sem } = await supa.from('semester').select('id, kode, tahun_akademik, tipe').eq('is_aktif', true).maybeSingle();
+    if (sem) {
+      if (sem.tahun_akademik) {
+        const match = sem.tahun_akademik.match(/^(\d{4})/);
+        if (match) tahun = parseInt(match[1]);
+      } else if (sem.kode) {
+        const match = sem.kode.match(/^(\d{4})/);
+        if (match) tahun = parseInt(match[1]);
+      }
+      if (sem.tipe) {
+        academicSemester = sem.tipe.toLowerCase() === 'ganjil' ? 1 : 2;
+      } else if (sem.kode) {
+        academicSemester = sem.kode.endsWith('-1') ? 1 : 2;
+      }
+    }
+    console.log(`[CAS] Dynamic parameters: tahun=${tahun}, semester=${academicSemester}`);
+
+    const [profile, nilaiList, kehadiranList, tugasList, pengumumanList, matkulDetailList, jadwalList] = await Promise.all([
       scrapeProfile(casResult.etholCookieStr),
       scrapeNilai(casResult.etholCookieStr),
       scrapeKehadiran(casResult.etholCookieStr),
-      scrapeTugas(casResult.etholCookieStr),
-      scrapePengumuman(casResult.etholCookieStr),
-      scrapeMatakuliahDetail(casResult.etholCookieStr),
+      scrapeTugas(casResult.etholCookieStr, jwt, tahun, academicSemester),
+      scrapePengumuman(casResult.etholCookieStr, jwt),
+      scrapeMatakuliahDetail(casResult.etholCookieStr, jwt, tahun, academicSemester),
+      scrapeJadwalKuliah(casResult.etholCookieStr, jwt),
     ]);
 
-    console.log(`[CAS] Scraping done: profil=${profile.fullName ?? '?'}, nilai=${nilaiList.length}, kehadiran=${kehadiranList.length}, tugas=${tugasList.length}, pengumuman=${pengumumanList.length}, matkul=${matkulDetailList.length}`);
+    console.log(`[CAS] Scraping done: profil=${profile.fullName ?? '?'}, nilai=${nilaiList.length}, kehadiran=${kehadiranList.length}, tugas=${tugasList.length}, pengumuman=${pengumumanList.length}, matkul=${matkulDetailList.length}, jadwal=${jadwalList.length}`);
 
-    const userInfo = await syncToSupabase(supa, netId.trim(), profile, nilaiList, kehadiranList, tugasList, pengumumanList, matkulDetailList, casResult.etholCookieStr);
+    const userInfo = await syncToSupabase(supa, netId.trim(), profile, nilaiList, kehadiranList, tugasList, pengumumanList, matkulDetailList, jadwalList, casResult.etholCookieStr);
     console.log(`[CAS] ✓ Sync selesai: ${userInfo.email} (${userInfo.role})`);
 
     let tokens = { access_token: '', refresh_token: '' };

@@ -131,8 +131,7 @@ async function scrapeKehadiran(cookieStr: string) {
   return list;
 }
 
-// ─── Scraping: Tugas (Assignments) ────────────────────────────────────────────
-async function scrapeTugas(cookieStr: string, jwt: string | null) {
+async function scrapeTugas(cookieStr: string, jwt: string | null, tahun: number, semester: number) {
   const list: {
     judul: string;
     matkul: string;
@@ -143,7 +142,8 @@ async function scrapeTugas(cookieStr: string, jwt: string | null) {
 
   if (jwt) {
     try {
-      const data = await etholApi.getLatestAssignments(jwt);
+      console.log(`[SYNC-API] Tugas querying with params ${tahun}-${semester}...`);
+      const data = await etholApi.getLatestAssignments(jwt, tahun, semester);
       if (Array.isArray(data) && data.length > 0) {
         data.forEach((t: any) => {
           list.push({
@@ -322,17 +322,101 @@ async function scrapePengumuman(cookieStr: string, jwt: string | null) {
   return list;
 }
 
-async function scrapeMatakuliahDetail(cookieStr: string, jwt: string | null) {
+// ─── Scraping: Materi & Jadwal Kuliah ─────────────────────────────────────────
+async function scrapeMateri(cookieStr: string, jwt: string | null, tahun: number, semester: number) {
+  const list: { judul: string; deskripsi: string; matkul: string; file_url: string | null }[] = [];
+  if (jwt) {
+    try {
+      const res = await axios.get(`${ETHOL_BASE}/api/mahasiswa/materi`, {
+        headers: { 'token': jwt, 'Cookie': cookieStr }, validateStatus: (s) => s < 500, timeout: 10000
+      });
+      const data = res.data;
+      if (Array.isArray(data) && data.length > 0) {
+        data.forEach((m: any) => {
+          list.push({
+            judul: (m.judul || m.title || 'Materi Pembelajaran').substring(0, 255),
+            deskripsi: (m.deskripsi || m.description || '').substring(0, 1000),
+            matkul: (m.matakuliah || m.nama_matakuliah || 'Umum').substring(0, 100),
+            file_url: m.file_url ? (m.file_url.startsWith('http') ? m.file_url : `${ETHOL_BASE}${m.file_url}`) : null,
+          });
+        });
+        if (list.length > 0) return list;
+      }
+    } catch (e: any) { console.log(`[SYNC-API] Materi Error: ${e.message}`); }
+  }
+  return list;
+}
+
+async function scrapeJadwalKuliah(cookieStr: string, jwt: string | null) {
+  const list: { matkul: string; hari: string; jam: string; ruang: string; dosen: string }[] = [];
+  if (jwt) {
+    try {
+      const res = await axios.get(`${ETHOL_BASE}/api/mahasiswa/jadwal`, {
+        headers: { 'token': jwt, 'Cookie': cookieStr }, validateStatus: (s) => s < 500, timeout: 10000
+      });
+      if (res.status === 200 && Array.isArray(res.data)) {
+        res.data.forEach((j: any) => {
+          list.push({
+            matkul: (j.matakuliah || j.nama_matakuliah || 'Jadwal').substring(0, 100),
+            hari: (j.hari || 'Sesuai Jadwal').substring(0, 20),
+            jam: (j.jam || `${j.jam_mulai || ''} - ${j.jam_selesai || ''}`).substring(0, 50),
+            ruang: (j.ruang || j.tempat || 'Kelas Offline').substring(0, 50),
+            dosen: (j.dosen || 'Dosen Pengampu').substring(0, 100)
+          });
+        });
+        if (list.length > 0) return list;
+      }
+    } catch (e: any) { console.log(`[SYNC-API] Jadwal Error: ${e.message}`); }
+  }
+  return list;
+}
+
+async function scrapeMatakuliahDetail(cookieStr: string, jwt: string | null, tahun: number, semester: number) {
   const list: { nama: string; dosen: string; hari: string; jam: string; ruang: string; kode: string }[] = [];
   
   // ── Layer 1: Use ETHOL REST API with JWT token ──
   if (jwt) {
     try {
-      const data = await etholApi.getCourses(jwt);
+      console.log(`[SYNC-API] Layer 1 (JWT) querying courses for ${tahun}-${semester}...`);
+      let data = await etholApi.getCourses(jwt, tahun, semester);
+      
+      // Cascading Fallback if current active semester is empty or returns no courses
+      if (!Array.isArray(data) || data.length === 0) {
+        console.log(`[SYNC-API] No courses in ${tahun}-${semester}, trying fallbacks...`);
+        const fallbacks = [
+          { t: 2025, s: 2 },
+          { t: 2025, s: 1 },
+          { t: 2024, s: 2 },
+          { t: 2024, s: 1 }
+        ];
+        for (const fb of fallbacks) {
+          if (fb.t === tahun && fb.s === semester) continue;
+          try {
+            console.log(`[SYNC-API] Querying courses for fallback ${fb.t}-${fb.s}...`);
+            const fbData = await etholApi.getCourses(jwt, fb.t, fb.s);
+            if (Array.isArray(fbData) && fbData.length > 0) {
+              data = fbData;
+              console.log(`[SYNC-API] Fallback succeeded: found ${data.length} courses in ${fb.t}-${fb.s}`);
+              break;
+            }
+          } catch (e: any) {
+            console.log(`[SYNC-API] Fallback error for ${fb.t}-${fb.s}: ${e.message}`);
+          }
+        }
+      }
+
       if (Array.isArray(data) && data.length > 0) {
         data.forEach((c: any) => {
+          let nameVal = '';
+          if (c.matakuliah) {
+            nameVal = typeof c.matakuliah === 'object' ? (c.matakuliah.nama || c.matakuliah.name || '') : c.matakuliah;
+          } else {
+            nameVal = c.nama || c.name || '';
+          }
+          if (!nameVal) return;
+
           list.push({
-            nama: c.matakuliah || c.nama || c.name || '',
+            nama: nameVal,
             dosen: c.dosen || c.dosen_pengampu || 'Dosen Pengampu',
             hari: c.hari || 'Sesuai Jadwal',
             jam: c.jam_mulai ? `${c.jam_mulai}${c.jam_selesai ? ` - ${c.jam_selesai}` : ''}` : 'Sesuai Jadwal',
@@ -340,7 +424,7 @@ async function scrapeMatakuliahDetail(cookieStr: string, jwt: string | null) {
             kode: c.kode || c.kode_matakuliah || '',
           });
         });
-        console.log(`[SYNC-API] Layer 1 (JWT): ${list.length} courses found`);
+        console.log(`[SYNC-API] Layer 1 (JWT) Success: ${list.length} courses found`);
         if (list.length > 0) return list;
       }
     } catch (e: any) {
@@ -348,14 +432,15 @@ async function scrapeMatakuliahDetail(cookieStr: string, jwt: string | null) {
     }
   }
 
-  // ── Layer 2: Direct ETHOL API call with cookie (no JWT needed) ──
+  // ── Layer 2: Direct ETHOL API call with cookie (and JWT token in header if present) ──
   // ETHOL is a Vue.js SPA — HTML scraping returns landing page shell.
   // The real data is served by the REST API at /api/kuliah
   const apiEndpoints = [
-    { url: `${ETHOL_BASE}/api/kuliah`, method: 'GET' },
-    { url: `${ETHOL_BASE}/api/jadwal/jadwal-online`, method: 'GET' },
+    { url: `${ETHOL_BASE}/api/kuliah?tahun=${tahun}&semester=${semester}`, method: 'GET' },
     { url: `${ETHOL_BASE}/api/kuliah?tahun=2025&semester=2`, method: 'GET' },
     { url: `${ETHOL_BASE}/api/kuliah?tahun=2025&semester=1`, method: 'GET' },
+    { url: `${ETHOL_BASE}/api/kuliah?tahun=2024&semester=2`, method: 'GET' },
+    { url: `${ETHOL_BASE}/api/jadwal/jadwal-online`, method: 'GET' },
   ];
 
   for (const ep of apiEndpoints) {
@@ -368,6 +453,7 @@ async function scrapeMatakuliahDetail(cookieStr: string, jwt: string | null) {
           'Accept': 'application/json, text/plain, */*',
           'Referer': `${ETHOL_BASE}/mahasiswa/matakuliah`,
           'X-Requested-With': 'XMLHttpRequest',
+          ...(jwt ? { 'token': jwt } : {}),
         },
         timeout: 15000,
         maxRedirects: 5,
@@ -383,10 +469,16 @@ async function scrapeMatakuliahDetail(cookieStr: string, jwt: string | null) {
         
         if (Array.isArray(courses) && courses.length > 0) {
           courses.forEach((c: any) => {
-            const nama = c.matakuliah || c.nama || c.name || c.mata_kuliah || c.course_name || '';
-            if (!nama || list.find(x => x.nama === nama)) return;
+            let nameVal = '';
+            if (c.matakuliah) {
+              nameVal = typeof c.matakuliah === 'object' ? (c.matakuliah.nama || c.matakuliah.name || '') : c.matakuliah;
+            } else {
+              nameVal = c.nama || c.name || c.mata_kuliah || c.course_name || '';
+            }
+            if (!nameVal || list.find(x => x.nama === nameVal)) return;
+
             list.push({
-              nama,
+              nama: nameVal,
               dosen: c.dosen || c.dosen_pengampu || c.nama_dosen || c.lecturer || 'Dosen Pengampu',
               hari: c.hari || 'Sesuai Jadwal',
               jam: c.jam_mulai ? `${c.jam_mulai}${c.jam_selesai ? ` - ${c.jam_selesai}` : ''}` : (c.jam || c.waktu || 'Sesuai Jadwal'),
@@ -465,6 +557,116 @@ async function scrapeMatakuliahDetail(cookieStr: string, jwt: string | null) {
     console.log(`[SYNC-SCRAPE] Layer 4 Error: ${(e as Error).message}`);
   }
 
+  // ── Layer 5: HTML Scraping of /mahasiswa/matakuliah ──
+  try {
+    if (list.length === 0) { // Only fallback to this if API/Moodle failed
+      await rnd(300, 600);
+      const res = await axios.get(`${ETHOL_BASE}/mahasiswa/matakuliah`, {
+        headers: { ...HEADERS, Cookie: cookieStr, Referer: `${ETHOL_BASE}/` },
+        timeout: 20000, maxRedirects: 5, validateStatus: (s) => s < 500,
+      });
+
+      if (res.status === 200) {
+        const $ = cheerio.load(res.data as string);
+        if ($('input[name="username"]').length === 0) {
+          const seenNames = new Set<string>(list.map(x => x.nama));
+          
+          $('a[href*="?id="], a[href*="course/view.php"], a[href*="/course/"]').each((_, el) => {
+            const href = $(el).attr('href') || '';
+            const idMatch = href.match(/[?&]id=(\d+)/);
+            if (!idMatch) return;
+            
+            let card = $(el).closest('.card, .coursebox, [class*="course"], [class*="card"], li, .col, .item, div[class]');
+            if (card.length === 0) card = $(el).parentsUntil('body').filter((_, p) => {
+              const tag = (p as any).tagName?.toLowerCase?.() || '';
+              return tag === 'li' || tag === 'div' || tag === 'article';
+            }).first();
+            if (card.length === 0) card = $(el).parent();
+
+            const cardText = card.text().replace(/\s+/g, ' ').trim();
+            const linkText = $(el).text().trim();
+
+            let nama = linkText || card.find('h3, h4, .card-title, .title').first().text().trim() || '';
+            if (nama.length < 3) nama = card.find('[class*="title"], [class*="name"], strong').first().text().trim() || '';
+            if (nama.toLowerCase().includes('akses') || nama.toLowerCase().includes('kuliah')) nama = '';
+
+            if (!nama) {
+              const lines = cardText.split('\n').map(l => l.trim()).filter(l => l.length > 3 && l.length < 100);
+              for (const l of lines) {
+                if (l.toLowerCase().includes('akses') || l.toLowerCase().includes('masuk')) continue;
+                if (!nama && l.length > 3) { nama = l; break; }
+              }
+            }
+
+            if (!nama || seenNames.has(nama)) return;
+            seenNames.add(nama);
+
+            let dosen = 'Dosen Pengampu';
+            let hari = 'Sesuai Jadwal';
+            let jam = 'Sesuai Jadwal';
+            let ruang = 'Kelas Virtual / Offline';
+            let kode = '';
+
+            const codeMatch = cardText.match(/\b([A-Z]{2,4}\d{3,5})\b/);
+            if (codeMatch) kode = codeMatch[1];
+
+            const jadwalMatch = cardText.match(/(Senin|Selasa|Rabu|Kamis|Jumat|Sabtu|Minggu)[,\s]+(\d{2}:\d{2})(?:\s*(?:s\/d|-|sampai)\s*(\d{2}:\d{2}))?/i);
+            if (jadwalMatch) {
+              hari = jadwalMatch[1];
+              jam = jadwalMatch[2] + (jadwalMatch[3] ? ` - ${jadwalMatch[3]}` : '');
+            }
+
+            const dosenText = card.find('[class*="dosen"], [class*="instructor"], [class*="teacher"]').first().text().trim();
+            if (dosenText) dosen = dosenText.replace(/dosen\s*pengampu\s*[:\s]*/i, '').trim();
+
+            const ruangMatch = cardText.match(/(?:Ruang|R\.|Lab\.|Lab|Kelas)\s*([A-Z0-9]+(?:\s+[A-Z0-9]+)?)/i);
+            if (ruangMatch) ruang = ruangMatch[0];
+
+            list.push({ nama, dosen, hari, jam, ruang, kode });
+          });
+          
+          $('.card, .coursebox, [class*="course-card"], [class*="card-course"], li.course-item, .col-md-4, .col-md-6, .col-lg-4').each((_, el) => {
+            const text = $(el).text().replace(/\s+/g, ' ').trim();
+            if (!text || text.length < 10) return;
+
+            const link = $(el).find('a[href*="id="]').first();
+            let nama = link.text().trim() || $(el).find('h3, h4, .title, strong').first().text().trim();
+            if (!nama || nama.length < 3 || nama.toLowerCase().includes('akses') || seenNames.has(nama)) return;
+            seenNames.add(nama);
+
+            const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+            const cleanName = lines.find(l => l.length > 3 && !l.toLowerCase().includes('akses') && !l.match(/^(Senin|Selasa)/i));
+            if (cleanName && cleanName.length < nama.length) nama = cleanName;
+
+            let dosen = 'Dosen Pengampu';
+            let hari = 'Sesuai Jadwal';
+            let jam = 'Sesuai Jadwal';
+            let ruang = 'Kelas Virtual / Offline';
+            let kode = '';
+
+            const codeMatch = text.match(/\b([A-Z]{2,4}\d{3,5})\b/);
+            if (codeMatch) kode = codeMatch[1];
+
+            const jadwalMatch = text.match(/(Senin|Selasa|Rabu|Kamis|Jumat|Sabtu|Minggu)[,\s]+(\d{2}:\d{2})(?:\s*(?:s\/d|-|sampai)\s*(\d{2}:\d{2}))?/i);
+            if (jadwalMatch) { hari = jadwalMatch[1]; jam = jadwalMatch[2] + (jadwalMatch[3] ? ` - ${jadwalMatch[3]}` : ''); }
+
+            const dosenText = $(el).find('[class*="dosen"], [class*="instructor"]').first().text().trim();
+            if (dosenText) dosen = dosenText.replace(/dosen\s*pengampu\s*[:\s]*/i, '').trim();
+
+            const ruangMatch = text.match(/(?:Ruang|R\.|Lab\.|Lab|Kelas)\s*([A-Z0-9]+(?:\s+[A-Z0-9]+)?)/i);
+            if (ruangMatch) ruang = ruangMatch[0];
+
+            list.push({ nama, dosen, hari, jam, ruang, kode });
+          });
+          
+          console.log(`[SYNC-SCRAPE] Layer 5 (HTML /mahasiswa/matakuliah): added courses, total now ${list.length}`);
+        }
+      }
+    }
+  } catch (e) {
+    console.log(`[SYNC-SCRAPE] Layer 5 Error: ${(e as Error).message}`);
+  }
+
   console.log(`[SYNC-SCRAPE] Total courses found across all layers: ${list.length}`);
   return list;
 }
@@ -485,7 +687,7 @@ async function getOrCreateMatkul(supa: any, nama: string, prodi: string, extra?:
     }
     return ex.id;
   }
-  const kode = extra?.kode || nama.toUpperCase().replace(/[^A-Z0-9]/g, '').substring(0, 10) || `MK${Date.now()}`;
+  const kode = extra?.kode || (nama.toUpperCase().replace(/[^A-Z0-9]/g, '').substring(0, 8) + Math.floor(Math.random()*10000)) || `MK${Date.now()}`;
   const { data: c, error } = await supa.from('mata_kuliah').insert({ 
     kode, nama, sks: 3, prodi, jurusan: 'Teknik Informatika', jenis: 'wajib',
     ...upData
@@ -590,14 +792,36 @@ export async function POST(request: NextRequest) {
     if (jwt) console.log('[SYNC] JWT token successfully extracted for API calls');
     else console.log('[SYNC] Failed to get JWT token, falling back to HTML scraping');
 
+    // ── Fetch active semester beforehand to get academic parameters ──
+    let tahun = 2025;
+    let academicSemester = 2;
+    const { data: sem } = await supa.from('semester').select('id, kode, tahun_akademik, tipe').eq('is_aktif', true).maybeSingle();
+    if (sem) {
+      if (sem.tahun_akademik) {
+        const match = sem.tahun_akademik.match(/^(\d{4})/);
+        if (match) tahun = parseInt(match[1]);
+      } else if (sem.kode) {
+        const match = sem.kode.match(/^(\d{4})/);
+        if (match) tahun = parseInt(match[1]);
+      }
+      if (sem.tipe) {
+        academicSemester = sem.tipe.toLowerCase() === 'ganjil' ? 1 : 2;
+      } else if (sem.kode) {
+        academicSemester = sem.kode.endsWith('-1') ? 1 : 2;
+      }
+    }
+    console.log(`[SYNC] Dynamic parameters: tahun=${tahun}, semester=${academicSemester}`);
+
     // ── Scrape all data in parallel ──
-    const [profile, nilaiList, kehadiranList, tugasList, pengumumanList, matkulDetailList] = await Promise.all([
+    const [profile, nilaiList, kehadiranList, tugasList, pengumumanList, matkulDetailList, materiList, jadwalList] = await Promise.all([
       scrapeProfile(cookieStr),
       scrapeNilai(cookieStr),
       scrapeKehadiran(cookieStr),
-      scrapeTugas(cookieStr, jwt),
+      scrapeTugas(cookieStr, jwt, tahun, academicSemester),
       scrapePengumuman(cookieStr, jwt),
-      scrapeMatakuliahDetail(cookieStr, jwt),
+      scrapeMatakuliahDetail(cookieStr, jwt, tahun, academicSemester),
+      scrapeMateri(cookieStr, jwt, tahun, academicSemester),
+      scrapeJadwalKuliah(cookieStr, jwt)
     ]);
 
     // Check if session is expired (redirected to login)
@@ -607,15 +831,41 @@ export async function POST(request: NextRequest) {
         message: 'Sesi ETHOL kadaluarsa. Silakan login ulang melalui halaman Login.',
       }, { status: 401 });
     }
+    
+    console.log(`[SYNC] Scraped: profil=${profile.fullName ?? '?'}, nilai=${nilaiList.length}, kehadiran=${kehadiranList.length}, tugas=${tugasList.length}, pengumuman=${pengumumanList.length}, matkul=${matkulDetailList.length}, materi=${materiList.length}, jadwal=${jadwalList.length}`);
 
-    console.log(`[SYNC] Scraped: profil=${profile.fullName ?? '?'}, nilai=${nilaiList.length}, kehadiran=${kehadiranList.length}, tugas=${tugasList.length}, pengumuman=${pengumumanList.length}, matkul=${matkulDetailList.length}`);
-
-    // ── Update database ──
     const prodi = profile.prodi ?? 'D3 Teknik Informatika';
-    const { data: mhsR } = await supa.from('mahasiswa').select('id').eq('user_id', user.id).maybeSingle();
-    const { data: sem } = await supa.from('semester').select('id').eq('is_aktif', true).maybeSingle();
+    const fullName = profile.fullName ?? 'Mahasiswa PENS';
+    const nrp = profile.nrp ?? `0${Date.now()}`;
+    const kelas = profile.kelas ?? 'Belum Ditentukan';
+    const angkatan = profile.angkatan ?? new Date().getFullYear();
 
-    if (mhsR && sem) {
+    let mhsId = null;
+    try {
+      // Robust TS implementation to bypass outdated database RPCs
+      let { data: mhs } = await supa.from('mahasiswa').select('id').eq('nrp', nrp).maybeSingle();
+      if (!mhs) {
+        const { data: mhsByUid } = await supa.from('mahasiswa').select('id').eq('user_id', user.id).maybeSingle();
+        mhs = mhsByUid;
+      }
+      
+      if (!mhs) {
+        const { data: newMhs, error: insErr } = await supa.from('mahasiswa').insert({
+          user_id: user.id, nrp, nama_lengkap: fullName, kelas, prodi, angkatan, dosen_wali_id: null
+        }).select('id').maybeSingle();
+        if (newMhs) mhsId = newMhs.id;
+        else console.error('[SYNC] Failed to insert mahasiswa:', insErr);
+      } else {
+        mhsId = mhs.id;
+        await supa.from('mahasiswa').update({
+          nrp, nama_lengkap: fullName, kelas, prodi, user_id: user.id
+        }).eq('id', mhsId);
+      }
+    } catch (e: any) {
+      console.error('[SYNC] Error getting/creating mahasiswa:', e.message);
+    }
+
+    if (mhsId && sem) {
       const G: Record<string, number> = { A: 90, AB: 83, B: 74, BC: 65, C: 56, D: 46, E: 20 };
 
       // Upsert Matakuliah Details first
@@ -624,7 +874,7 @@ export async function POST(request: NextRequest) {
         if (mk) {
           // Force enrollment in kehadiran so it shows up in Matakuliah page!
           await supa.from('kehadiran').upsert({
-            mahasiswa_id: mhsR.id, semester_id: sem.id, mata_kuliah_id: mk,
+            mahasiswa_id: mhsId, semester_id: sem.id, mata_kuliah_id: mk,
             total_pertemuan: 0, hadir: 0, izin: 0, sakit: 0, alpha: 0
           }, { onConflict: 'mahasiswa_id,semester_id,mata_kuliah_id' });
         }
@@ -639,7 +889,7 @@ export async function POST(request: NextRequest) {
         const mk = await getOrCreateMatkul(supa, n.courseName, prodi);
         if (mk) {
           batchNilai.push({
-            mahasiswa_id: mhsR.id,
+            mahasiswa_id: mhsId,
             semester_id: sem.id,
             mata_kuliah_id: mk,
             nilai_tugas: null,
@@ -654,7 +904,7 @@ export async function POST(request: NextRequest) {
         const mk = await getOrCreateMatkul(supa, k.matkul, prodi);
         if (mk) {
           batchKehadiran.push({
-            mahasiswa_id: mhsR.id,
+            mahasiswa_id: mhsId,
             semester_id: sem.id,
             mata_kuliah_id: mk,
             total_pertemuan: k.total,
@@ -670,43 +920,43 @@ export async function POST(request: NextRequest) {
       if (batchNilai.length > 0) await supa.rpc('upsert_nilai_batch', { data_nilai: batchNilai });
       if (batchKehadiran.length > 0) await supa.rpc('upsert_kehadiran_batch', { data_hadir: batchKehadiran });
 
-      // Upsert Tugas (delete old & re-insert fresh scraped data)
-      if (tugasList.length > 0) {
-        // Delete existing tugas for this student that came from ETHOL
-        await supa.from('tugas').delete()
-          .eq('mahasiswa_id', mhsR.id)
-          .not('sumber_ethol', 'is', null);
-
-        for (const t of tugasList) {
-          const mk = t.matkul && t.matkul !== 'Dari Dasbor'
-            ? await getOrCreateMatkul(supa, t.matkul, prodi)
-            : null;
-
-          // Parse deadline - try common formats
-          let deadlineTs: string | null = null;
-          if (t.deadline) {
-            const parsed = new Date(t.deadline);
-            if (!isNaN(parsed.getTime())) deadlineTs = parsed.toISOString();
-          }
-
-          await supa.from('tugas').insert({
-            mahasiswa_id: mhsR.id,
-            mata_kuliah_id: mk,
-            judul: t.judul,
-            deadline: deadlineTs,
-            status: t.status,
-            color: '#ef4444',
-            sumber_ethol: t.sumber_url,
-          });
+      // Upsert Tugas
+      for (const t of tugasList) {
+        const mk = await getOrCreateMatkul(supa, t.matkul, prodi);
+        if (mk) {
+          await supa.from('tugas').upsert({
+            mahasiswa_id: mhsId, mata_kuliah_id: mk, judul: t.judul, deadline: t.deadline,
+            status: t.status, sumber_url: t.sumber_url
+          }, { onConflict: 'mahasiswa_id,mata_kuliah_id,judul' });
         }
-        console.log(`[SYNC] ✓ Saved ${tugasList.length} tugas`);
+      }
+
+      // Upsert Materi
+      for (const m of materiList) {
+        const mk = await getOrCreateMatkul(supa, m.matkul, prodi);
+        if (mk) {
+          await supa.from('materi').upsert({
+            mata_kuliah_id: mk, judul: m.judul, deskripsi: m.deskripsi, file_url: m.file_url,
+            tipe: m.file_url ? 'file' : 'teks'
+          }, { onConflict: 'mata_kuliah_id,judul' });
+        }
+      }
+
+      // Update Jadwal in Mata Kuliah table
+      for (const j of jadwalList) {
+        await getOrCreateMatkul(supa, j.matkul, prodi, {
+          hari: j.hari,
+          jam: j.jam,
+          ruang: j.ruang,
+          dosen: j.dosen !== 'Dosen Pengampu' ? j.dosen : undefined
+        });
       }
 
       // Update IPK history
       if (nilaiList.length > 0) {
         const { data: nilaiData } = await supa.from('nilai_mahasiswa')
           .select('bobot_nilai, mata_kuliah:mata_kuliah_id(sks)')
-          .eq('mahasiswa_id', mhsR.id)
+          .eq('mahasiswa_id', mhsId)
           .eq('semester_id', sem.id);
 
         if (nilaiData && nilaiData.length > 0) {
@@ -718,7 +968,7 @@ export async function POST(request: NextRequest) {
           }
           const ips = totalSks > 0 ? parseFloat((totalBobotSks / totalSks).toFixed(2)) : 0;
           await supa.from('ipk_history').upsert({
-            mahasiswa_id: mhsR.id, semester_id: sem.id,
+            mahasiswa_id: mhsId, semester_id: sem.id,
             ips, ipk_kumulatif: ips,
             sks_semester: totalSks, sks_kumulatif: totalSks, sks_lulus: totalSks,
           }, { onConflict: 'mahasiswa_id,semester_id' });
