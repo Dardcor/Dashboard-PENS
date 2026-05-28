@@ -260,78 +260,12 @@ async function followRedirectChain(startUrl: string, initialCookies: Record<stri
   return { success: true as const, etholCookieStr: joinCookies(etholCookies) };
 }
 
-async function casLoginViaPuppeteer(username: string, password: string) {
-  console.log('[CAS-PUPPETEER] Mencoba login menggunakan headless browser...');
-  try {
-    let puppeteer;
-    try {
-      puppeteer = require('puppeteer');
-    } catch (e) {
-      console.log('[CAS-PUPPETEER] Puppeteer tidak tersedia. Pastikan Anda menjalankan "npm install puppeteer"');
-      return { success: false as const, message: 'Modul puppeteer tidak ditemukan. Tidak dapat mengekstrak JWT.' };
-    }
-
-    const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
-    const page = await browser.newPage();
-    
-    // Buka halaman login CAS yang diarahkan ke layanan ETHOL
-    await page.goto(`${CAS_BASE}/login?service=${encodeURIComponent(ETHOL_SERVICE)}`, { waitUntil: 'networkidle2' });
-    
-    // Masukkan kredensial
-    await page.type('input[name="username"]', username);
-    await page.type('input[name="password"]', password);
-    
-    // Submit form dan tunggu redirect ke ETHOL beranda
-    await Promise.all([
-      page.click('button[type="submit"], input[type="submit"], .btn-submit'),
-      page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => null)
-    ]);
-    
-    // Cek apakah login gagal dengan membaca alert di halaman CAS
-    const url = page.url();
-    if (url.includes('login.pens.ac.id')) {
-      const errorMsg = await page.evaluate(() => {
-        const alert = document.querySelector('.alert-danger, #status, [class*="error"]');
-        return alert ? alert.textContent?.trim() : null;
-      });
-      await browser.close();
-      return { success: false as const, message: errorMsg || 'NetID atau Password salah.' };
-    }
-    
-    // Tunggu ETHOL SPA memproses token dan menyimpannya ke localStorage
-    let token = null;
-    for (let i = 0; i < 15; i++) {
-      token = await page.evaluate(() => localStorage.getItem('token'));
-      if (token) break;
-      await new Promise(r => setTimeout(r, 1000));
-    }
-    
-    // Ambil semua cookies untuk sesi tambahan (seperti Moodle)
-    const cookies = await page.cookies();
-    const etholCookies: Record<string, string> = {};
-    cookies.forEach((c: any) => etholCookies[c.name] = c.value);
-    
-    await browser.close();
-    
-    if (token) {
-      console.log('[CAS-PUPPETEER] ✓ Berhasil mendapatkan token JWT dan cookies dari browser!');
-      // Append JWT to cookies so it gets saved in user_ethol_sessions and extractable later
-      etholCookies['jwt_token'] = token;
-      return { success: true as const, etholCookieStr: joinCookies(etholCookies), jwt: token };
-    } else {
-      console.log('[CAS-PUPPETEER] Gagal menemukan token di localStorage.');
-      return { success: false as const, message: 'Gagal mengekstrak JWT token dari ETHOL. Login mungkin gagal.' };
-    }
-  } catch (e: any) {
-    console.error('[CAS-PUPPETEER] Error:', e.message);
-    return { success: false as const, message: 'Terjadi kesalahan saat memproses login.' };
-  }
-}
+// Puppeteer fallback removed for Vercel deployment compatibility
 
 async function casLogin(netId: string, password: string) {
   const username = netId.trim();
   console.log(`[CAS] Menggunakan NetID lengkap untuk CAS: '${username}'`);
-  return await casLoginViaPuppeteer(username, password);
+  return await casLoginViaRest(username, password);
 }
 
 async function scrapeProfile(cookieStr: string) {
@@ -750,7 +684,7 @@ async function scrapeMatakuliahDetail(cookieStr: string, jwt: string | null, tah
   return list;
 }
 
-async function syncToSupabase(supa: any, netId: string, profile: Awaited<ReturnType<typeof scrapeProfile>>, nilaiList: Awaited<ReturnType<typeof scrapeNilai>>, kehadiranList: Awaited<ReturnType<typeof scrapeKehadiran>>, tugasList: Awaited<ReturnType<typeof scrapeTugas>>, pengumumanList: Awaited<ReturnType<typeof scrapePengumuman>>, matkulDetailList: Awaited<ReturnType<typeof scrapeMatakuliahDetail>>, jadwalList: any[], etholCookieStr: string) {
+async function syncToSupabase(supa: any, netId: string, profile: Awaited<ReturnType<typeof scrapeProfile>>, nilaiList: Awaited<ReturnType<typeof scrapeNilai>>, kehadiranList: Awaited<ReturnType<typeof scrapeKehadiran>>, tugasList: Awaited<ReturnType<typeof scrapeTugas>>, pengumumanList: Awaited<ReturnType<typeof scrapePengumuman>>, matkulDetailList: Awaited<ReturnType<typeof scrapeMatakuliahDetail>>, etholCookieStr: string) {
   let email = netId.trim();
   if (!email.includes('@')) {
     email = /^\d+$/.test(email) ? `${email}@mhs.pens.ac.id` : `${email}@it.student.pens.ac.id`;
@@ -849,15 +783,7 @@ async function syncToSupabase(supa: any, netId: string, profile: Awaited<ReturnT
       const batchNilai = [];
       const batchKehadiran = [];
 
-      // Update Jadwal in Mata Kuliah table
-      for (const j of jadwalList) {
-        await getOrCreateMatkul(supa, j.matkul, prodi, {
-          hari: j.hari,
-          jam: j.jam,
-          ruang: j.ruang,
-          dosen: j.dosen !== 'Dosen Pengampu' ? j.dosen : undefined
-        });
-      }
+      // (Jadwal is now updated directly in /api/mahasiswa/jadwal-online-data)
 
       for (const n of nilaiList) {
         const mk = await getOrCreateMatkul(supa, n.courseName, prodi);
@@ -1000,7 +926,8 @@ export async function POST(request: NextRequest) {
     console.log('[CAS] ✓ Login berhasil! Mulai scraping ETHOL (profil + nilai + kehadiran + tugas + pengumuman)...');
 
     // ── Get JWT Token ──
-    const jwt = casResult.jwt || await etholApi.getEtholJwtToken(casResult.etholCookieStr);
+    // casResult dari REST fallback tidak me-return JWT secara eksplisit; kita selalu fetch JWT baru
+    const jwt = (casResult as any).jwt || await etholApi.getEtholJwtToken(casResult.etholCookieStr);
     if (jwt) console.log('[CAS] JWT token successfully extracted for API calls');
     else console.log('[CAS] Failed to get JWT token, falling back to HTML scraping');
 
@@ -1024,19 +951,18 @@ export async function POST(request: NextRequest) {
     }
     console.log(`[CAS] Dynamic parameters: tahun=${tahun}, semester=${academicSemester}`);
 
-    const [profile, nilaiList, kehadiranList, tugasList, pengumumanList, matkulDetailList, jadwalList] = await Promise.all([
+    const [profile, nilaiList, kehadiranList, tugasList, pengumumanList, matkulDetailList] = await Promise.all([
       scrapeProfile(casResult.etholCookieStr),
       scrapeNilai(casResult.etholCookieStr),
       scrapeKehadiran(casResult.etholCookieStr),
       scrapeTugas(casResult.etholCookieStr, jwt, tahun, academicSemester),
       scrapePengumuman(casResult.etholCookieStr, jwt),
       scrapeMatakuliahDetail(casResult.etholCookieStr, jwt, tahun, academicSemester),
-      scrapeJadwalKuliah(casResult.etholCookieStr, jwt),
     ]);
 
-    console.log(`[CAS] Scraping done: profil=${profile.fullName ?? '?'}, nilai=${nilaiList.length}, kehadiran=${kehadiranList.length}, tugas=${tugasList.length}, pengumuman=${pengumumanList.length}, matkul=${matkulDetailList.length}, jadwal=${jadwalList.length}`);
+    console.log(`[CAS] Scraping done: profil=${profile.fullName ?? '?'}, nilai=${nilaiList.length}, kehadiran=${kehadiranList.length}, tugas=${tugasList.length}, pengumuman=${pengumumanList.length}, matkul=${matkulDetailList.length}`);
 
-    const userInfo = await syncToSupabase(supa, netId.trim(), profile, nilaiList, kehadiranList, tugasList, pengumumanList, matkulDetailList, jadwalList, casResult.etholCookieStr);
+    const userInfo = await syncToSupabase(supa, netId.trim(), profile, nilaiList, kehadiranList, tugasList, pengumumanList, matkulDetailList, casResult.etholCookieStr);
     console.log(`[CAS] ✓ Sync selesai: ${userInfo.email} (${userInfo.role})`);
 
     let tokens = { access_token: '', refresh_token: '' };
