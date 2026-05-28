@@ -6,7 +6,6 @@ import Sidebar from '../../components/layout/Sidebar';
 import Header from '../../components/layout/Header';
 import { useAuth } from '../../context/AuthContext';
 import { SidebarProvider, useSidebar } from '../../context/SidebarContext';
-import { supabase } from '../../lib/supabase';
 
 function DashboardContent({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -29,15 +28,11 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
       if (isSyncing) return;
       isSyncing = true;
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.access_token) {
-          await fetch('/api/mahasiswa/sync', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${session.access_token}`
-            }
-          });
-        }
+        await fetch('/api/mahasiswa/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: user.id }),
+        });
       } catch (err) {
         console.error('Background sync failed', err);
       } finally {

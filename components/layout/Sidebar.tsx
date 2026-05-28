@@ -5,9 +5,8 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Users, AlertTriangle, Calendar, LogOut,
-  BookOpen, Clock, FileText, CheckSquare, Award, UserCheck,
-  Layers, X, MonitorPlay, ChevronDown, ChevronUp, HelpCircle,
-  Bell, Video, Play, MessageSquare, Globe, Settings, FileSignature
+  BookOpen, FileText, CheckSquare, X,
+  ChevronDown, ChevronUp, FileSignature,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useSidebar } from '../../context/SidebarContext';
@@ -27,14 +26,14 @@ export default function Sidebar() {
   const { isOpen, close, isMobile } = useSidebar();
 
   const [openMenus, setOpenMenus] = useState<Record<string, boolean>>({
-    ujian: pathname.includes('/mahasiswa/uts') || pathname.includes('/mahasiswa/uas'),
-    akademik: false,
+    'ujian-online': pathname.includes('/mahasiswa/uts') || pathname.includes('/mahasiswa/uas') || pathname.includes('/mahasiswa/ujian-online'),
   });
 
   const toggleMenu = (key: string) => {
     setOpenMenus((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
+  // ── Dosen Wali links ──────────────────────────────────────────
   const dosenLinks: NavLink[] = [
     { path: '/dosen', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/dosen/mahasiswa', icon: Users, label: 'Mahasiswa Binaan' },
@@ -43,13 +42,10 @@ export default function Sidebar() {
     { path: '/dosen/catatan', icon: FileSignature, label: 'Catatan Perwalian' },
   ];
 
-  const adminLinks: NavLink[] = [
-    { path: '/admin', icon: LayoutDashboard, label: 'Dashboard' },
-    { path: '/admin/mahasiswa', icon: Users, label: 'Mahasiswa' },
-    { path: '/admin/dosen', icon: BookOpen, label: 'Dosen Wali' },
-    { path: '/admin/konfigurasi', icon: Settings, label: 'Konfigurasi Alert' },
-  ];
-
+  // ── Mahasiswa links — EXACT match with ETHOL PENS sidebar ─────
+  // ETHOL sidebar DOM only has: Beranda, Matakuliah, Jadwal Online,
+  // Tugas Online, Ujian Online (dropdown UTS/UAS), Keluar.
+  // NO: Kuis, Materi Perkuliahan, Video Pembelajaran, Bantuan & Dukungan
   const mhsLinks: NavLink[] = [
     { path: '/mahasiswa/beranda', icon: LayoutDashboard, label: 'Beranda' },
     { path: '/mahasiswa/matakuliah', icon: BookOpen, label: 'Matakuliah' },
@@ -65,16 +61,10 @@ export default function Sidebar() {
         { path: '/mahasiswa/uas', label: 'UAS' },
       ],
     },
-    { path: '/mahasiswa/quiz', icon: HelpCircle, label: 'Kuis' },
-    { path: '/mahasiswa/materi-perkuliahan', icon: Layers, label: 'Materi Perkuliahan' },
-    { path: '/mahasiswa/video', icon: Video, label: 'Video Pembelajaran' },
-    { path: '/mahasiswa/support', icon: MessageSquare, label: 'Bantuan & Dukungan' },
-    { path: '/mahasiswa/notifications', icon: Bell, label: 'Notifikasi' },
-    { path: '/mahasiswa/settings', icon: Settings, label: 'Pengaturan' },
   ];
 
   const links: NavLink[] =
-    role === 'admin' ? adminLinks : role === 'dosen_wali' ? dosenLinks : role === 'mahasiswa' ? mhsLinks : [];
+    role === 'dosen_wali' ? dosenLinks : role === 'mahasiswa' ? mhsLinks : [];
 
   const isActive = (path: string) =>
     pathname === path ||
@@ -84,44 +74,58 @@ export default function Sidebar() {
     user?.avatar_url ||
     `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.full_name ?? 'User')}&background=0C6B94&color=fff&bold=true`;
 
+  // ── Render a single nav link (with optional submenu) ──────────
   const renderNavLink = (link: NavLink) => {
     const active = isActive(link.path);
 
     if (link.hasSubmenu) {
-      const submenuKey = link.label.toLowerCase().replace(/\s+/g, '-');
-      const isSubmenuOpen = openMenus[submenuKey] || active;
+      const key = link.label.toLowerCase().replace(/\s+/g, '-');
+      const open = openMenus[key] ?? active;
 
       return (
-        <li key={link.path} style={{ padding: '0' }}>
+        <li key={link.path} style={{ padding: 0 }}>
+          {/* Parent row */}
           <div
-            onClick={() => toggleMenu(submenuKey)}
+            role="button"
+            tabIndex={0}
+            onClick={() => toggleMenu(key)}
+            onKeyDown={(e) => e.key === 'Enter' && toggleMenu(key)}
             style={{
               display: 'flex', alignItems: 'center', gap: '1.25rem',
               padding: '0.75rem 1.25rem',
               fontSize: '0.875rem', cursor: 'pointer',
-              color: active || isSubmenuOpen ? 'var(--color-sidebar-text-active)' : 'var(--color-sidebar-text)',
-              borderLeft: active || isSubmenuOpen ? '3px solid var(--color-primary)' : '3px solid transparent',
-              fontWeight: 400,
+              color: active || open ? 'var(--color-sidebar-text-active)' : 'var(--color-sidebar-text)',
+              borderLeft: active || open ? '3px solid var(--color-primary)' : '3px solid transparent',
+              backgroundColor: active || open ? 'var(--color-sidebar-hover)' : 'transparent',
+              fontWeight: active || open ? 600 : 400,
               transition: 'all 0.2s ease',
+              userSelect: 'none',
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = 'var(--color-sidebar-hover)';
-              if (!active && !isSubmenuOpen) e.currentTarget.style.color = 'var(--color-sidebar-text-active)';
+              if (!active && !open) {
+                e.currentTarget.style.backgroundColor = 'var(--color-sidebar-hover)';
+                e.currentTarget.style.color = 'var(--color-sidebar-text-active)';
+              }
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = 'transparent';
-              if (!active && !isSubmenuOpen) e.currentTarget.style.color = 'var(--color-sidebar-text)';
+              if (!active && !open) {
+                e.currentTarget.style.backgroundColor = 'transparent';
+                e.currentTarget.style.color = 'var(--color-sidebar-text)';
+              }
             }}
           >
-            <link.icon size={20} style={{ color: active || isSubmenuOpen ? 'var(--color-sidebar-text-active)' : '#6c757d' }} />
-            {link.label}
-            {isSubmenuOpen ? (
-              <ChevronUp size={18} style={{ marginLeft: 'auto', color: 'var(--color-sidebar-text-active)' }} />
-            ) : (
-              <ChevronDown size={18} style={{ marginLeft: 'auto', color: '#6c757d' }} />
-            )}
+            <link.icon
+              size={20}
+              style={{ color: active || open ? 'var(--color-sidebar-text-active)' : '#6c757d', flexShrink: 0 }}
+            />
+            <span style={{ flex: 1 }}>{link.label}</span>
+            {open
+              ? <ChevronUp size={16} style={{ color: 'var(--color-sidebar-text-active)' }} />
+              : <ChevronDown size={16} style={{ color: '#6c757d' }} />}
           </div>
-          {isSubmenuOpen && link.submenus && (
+
+          {/* Submenu items */}
+          {open && link.submenus && (
             <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
               {link.submenus.map((sub) => {
                 const subActive = pathname === sub.path;
@@ -132,13 +136,15 @@ export default function Sidebar() {
                       onClick={() => isMobile && close()}
                       style={{
                         display: 'flex', alignItems: 'center',
-                        padding: '0.65rem 1.25rem 0.65rem 3.5rem',
-                        textDecoration: 'none', fontSize: '0.875rem',
+                        padding: '0.6rem 1.25rem 0.6rem 3.75rem',
+                        textDecoration: 'none', fontSize: '0.85rem',
                         color: subActive ? 'var(--color-sidebar-text-active)' : 'var(--color-sidebar-text)',
+                        backgroundColor: subActive ? 'rgba(23,121,186,0.05)' : 'transparent',
                         fontWeight: subActive ? 600 : 400,
                         transition: 'all 0.2s ease',
+                        borderLeft: subActive ? '3px solid var(--color-primary)' : '3px solid transparent',
                       }}
-                      onMouseEnter={(e) => e.currentTarget.style.color = 'var(--color-sidebar-text-active)'}
+                      onMouseEnter={(e) => { if (!subActive) e.currentTarget.style.color = 'var(--color-sidebar-text-active)'; }}
                       onMouseLeave={(e) => { if (!subActive) e.currentTarget.style.color = 'var(--color-sidebar-text)'; }}
                     >
                       {sub.label}
@@ -152,8 +158,9 @@ export default function Sidebar() {
       );
     }
 
+    // Plain link
     return (
-      <li key={link.path} style={{ padding: '0' }}>
+      <li key={link.path} style={{ padding: 0 }}>
         <Link
           href={link.path}
           onClick={() => isMobile && close()}
@@ -180,73 +187,136 @@ export default function Sidebar() {
             }
           }}
         >
-          <link.icon size={20} style={{ color: active ? 'var(--color-sidebar-text-active)' : '#6c757d' }} />
+          <link.icon
+            size={20}
+            style={{ color: active ? 'var(--color-sidebar-text-active)' : '#6c757d', flexShrink: 0 }}
+          />
           {link.label}
         </Link>
       </li>
     );
   };
 
+  // ── Sidebar container ─────────────────────────────────────────
   return (
     <>
+      {/* Mobile backdrop */}
       {isMobile && isOpen && (
-        <div onClick={close} style={{ position: 'fixed', inset: 0, zIndex: 40, backgroundColor: 'rgba(0,0,0,0.5)' }} />
+        <div
+          onClick={close}
+          style={{ position: 'fixed', inset: 0, zIndex: 40, backgroundColor: 'rgba(0,0,0,0.45)' }}
+        />
       )}
 
       <div
         style={{
           width: '260px',
           height: isMobile ? 'calc(100vh - 60px)' : '100%',
-          display: 'flex', flexDirection: 'column',
+          display: 'flex',
+          flexDirection: 'column',
           backgroundColor: 'var(--color-sidebar)',
           borderRight: '1px solid var(--color-border)',
           zIndex: 45,
           transition: 'transform 0.3s cubic-bezier(0.4,0,0.2,1)',
+          overflowY: 'hidden',
           ...(isMobile
-            ? { position: 'fixed', top: '60px', left: 0, transform: !isOpen ? 'translateX(-100%)' : 'translateX(0)' }
+            ? { position: 'fixed', top: '60px', left: 0, transform: isOpen ? 'translateX(0)' : 'translateX(-100%)' }
             : { position: 'relative', transform: 'none' }),
         }}
       >
-        <div style={{ padding: '1.25rem 1rem', borderBottom: '1px solid var(--color-border)', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '1rem', position: 'relative' }}>
+        {/* ── User profile section (matches ETHOL: avatar + name + role) ── */}
+        <div
+          style={{
+            padding: '1.25rem 1rem',
+            borderBottom: '1px solid var(--color-border)',
+            display: 'flex',
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: '0.85rem',
+            position: 'relative',
+            flexShrink: 0,
+          }}
+        >
           {isMobile && (
-            <button onClick={close} aria-label="Tutup sidebar" style={{ position: 'absolute', top: '0.5rem', right: '0.5rem', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-secondary)', padding: '0.25rem' }}>
-              <X size={20} />
+            <button
+              onClick={close}
+              aria-label="Tutup sidebar"
+              style={{
+                position: 'absolute', top: '0.5rem', right: '0.5rem',
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: 'var(--color-text-secondary)', padding: '0.25rem',
+              }}
+            >
+              <X size={18} />
             </button>
           )}
-          <img src={avatarUrl} alt="Avatar" style={{ width: '54px', height: '54px', borderRadius: '50%', objectFit: 'cover' }} />
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <h2 style={{ color: 'var(--color-text-primary)', fontSize: '0.85rem', fontWeight: 500, margin: 0, lineHeight: 1.2 }}>
+          {/* Avatar */}
+          <img
+            src={avatarUrl}
+            alt="Avatar"
+            style={{ width: '48px', height: '48px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
+          />
+          {/* Name & role */}
+          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+            <span
+              style={{
+                color: 'var(--color-text-primary)',
+                fontSize: '0.875rem',
+                fontWeight: 600,
+                lineHeight: 1.3,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
               {user?.full_name || 'Loading...'}
-            </h2>
-            <p style={{ fontSize: '0.8rem', color: 'var(--color-text-primary)', margin: '0.2rem 0 0 0', textTransform: 'capitalize', fontWeight: 400 }}>
-              {(role || '').replace('_', ' ')}
-            </p>
+            </span>
+            <span
+              style={{
+                fontSize: '0.78rem',
+                color: 'var(--color-text-secondary)',
+                marginTop: '0.1rem',
+                textTransform: 'capitalize',
+              }}
+            >
+              {(role || '').replace(/_/g, ' ')}
+            </span>
           </div>
         </div>
 
-        <div style={{ flex: 1, overflowY: 'auto', padding: '1rem 0' }}>
-          <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.2rem', margin: 0, padding: 0 }}>
+        {/* ── Nav links (exact ETHOL order) ─────────────────────── */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '0.75rem 0' }}>
+          <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column' }}>
             {links.map(renderNavLink)}
-
-            <li style={{ padding: '0', marginTop: '0.5rem' }}>
-              <button
-                onClick={logout}
-                style={{
-                  width: '100%', display: 'flex', alignItems: 'center', gap: '1.25rem',
-                  padding: '0.75rem 1.25rem',
-                  backgroundColor: 'transparent', border: 'none', borderLeft: '3px solid transparent',
-                  cursor: 'pointer',
-                  color: 'var(--color-sidebar-text)', fontWeight: 400, fontSize: '0.875rem',
-                  transition: 'all 0.2s ease',
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--color-sidebar-hover)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
-              >
-                <LogOut size={20} style={{ color: '#6c757d' }} />
-                Keluar
-              </button>
-            </li>
           </ul>
+        </div>
+
+        {/* ── Keluar button (matches ETHOL exactly) ──────────────── */}
+        <div style={{ borderTop: '1px solid var(--color-border)', flexShrink: 0 }}>
+          <button
+            onClick={logout}
+            style={{
+              width: '100%', display: 'flex', alignItems: 'center', gap: '1.25rem',
+              padding: '0.75rem 1.25rem',
+              backgroundColor: 'transparent', border: 'none',
+              borderLeft: '3px solid transparent',
+              cursor: 'pointer',
+              color: 'var(--color-sidebar-text)',
+              fontWeight: 400, fontSize: '0.875rem',
+              transition: 'all 0.2s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = 'var(--color-sidebar-hover)';
+              e.currentTarget.style.color = '#ef4444';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent';
+              e.currentTarget.style.color = 'var(--color-sidebar-text)';
+            }}
+          >
+            <LogOut size={20} style={{ color: '#6c757d' }} />
+            Keluar
+          </button>
         </div>
       </div>
     </>

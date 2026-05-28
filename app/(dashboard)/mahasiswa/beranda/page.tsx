@@ -105,31 +105,46 @@ export default function MahasiswaBerandaPage() {
     }
   }, [user]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => { 
+    fetchData().then(() => {
+      // Auto background sync on load
+      handleSync(true);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const handleSync = async () => {
+  const handleSync = async (isBackground = false) => {
+    if (isSyncing) return;
     setIsSyncing(true);
-    setSyncMessage('Sedang menyinkronkan data...');
-    setSyncSuccess(null);
+    if (!isBackground) {
+      setSyncMessage('Sedang menyinkronkan data...');
+      setSyncSuccess(null);
+    }
     try {
-      const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch('/api/mahasiswa/sync', {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${session?.access_token}` }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: user?.id }),
       });
       const data = await res.json();
       if (data.success) {
-        setSyncSuccess(true);
-        setSyncMessage('Berhasil disinkronisasi!');
+        if (!isBackground) {
+          setSyncSuccess(true);
+          setSyncMessage('Berhasil disinkronisasi!');
+        }
         setSyncStats(data.stats || {});
         await fetchData();
       } else {
-        setSyncSuccess(false);
-        setSyncMessage(`Gagal: ${data.message}`);
+        if (!isBackground) {
+          setSyncSuccess(false);
+          setSyncMessage(`Gagal: ${data.message}`);
+        }
       }
     } catch {
-      setSyncSuccess(false);
-      setSyncMessage('Terjadi kesalahan jaringan.');
+      if (!isBackground) {
+        setSyncSuccess(false);
+        setSyncMessage('Terjadi kesalahan jaringan.');
+      }
     } finally {
       setIsSyncing(false);
       setTimeout(() => { setSyncMessage(''); setSyncSuccess(null); setSyncStats({}); }, 8000);
@@ -204,7 +219,7 @@ export default function MahasiswaBerandaPage() {
           )}
         </div>
         <button 
-          onClick={handleSync} 
+          onClick={() => handleSync(false)} 
           disabled={isSyncing} 
           className="btn"
           style={{ 
@@ -221,68 +236,133 @@ export default function MahasiswaBerandaPage() {
         </button>
       </div>
 
-      {/* Courses Carousel / Grid */}
+      {/* Courses Carousel / Grid (Exact ETHOL style matching Gambar 2) */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '1rem' }}>
+        <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: '#333', margin: 0 }}>
+          Kuliah Semester Genap Tahun Ajaran 2025
+        </h2>
+        <span style={{ fontSize: '0.75rem', color: '#888', fontStyle: 'italic' }}>
+          Item dapat digeser ke kanan atau ke kiri
+        </span>
+      </div>
+
       {courses.length === 0 ? (
         <div className="card p-6 mb-8 text-center text-muted" style={{ borderStyle: 'dashed' }}>
           <BookOpen size={32} style={{ opacity: 0.5, margin: '0 auto 0.5rem' }} />
           <p>Belum ada matakuliah. Klik sinkronisasi untuk memuat dari ETHOL.</p>
         </div>
       ) : (
-        <div className="mb-8" style={{
-          display: 'flex', gap: '1rem', overflowX: 'auto', paddingBottom: '1rem',
-          scrollSnapType: 'x mandatory', msOverflowStyle: 'none', scrollbarWidth: 'none'
-        }}>
-          {courses.map((course) => (
-            <div key={course.id} className="card" style={{
-              minWidth: '320px', maxWidth: '350px', flex: '0 0 auto', scrollSnapAlign: 'start',
-              borderTop: '4px solid var(--color-primary)', display: 'flex', flexDirection: 'column'
-            }}>
-              <div style={{ padding: '1.25rem' }}>
-                <span style={{ fontSize: '0.7rem', fontWeight: 700, backgroundColor: 'var(--color-primary-light)', color: 'var(--color-primary)', padding: '0.2rem 0.5rem', borderRadius: '4px' }}>
-                  {course.kode} &bull; {course.sks} SKS
-                </span>
-                <h3 style={{ fontSize: '1.05rem', fontWeight: 700, margin: '0.75rem 0', lineHeight: 1.3, color: 'var(--color-text-primary)' }}>
-                  {course.nama}
-                </h3>
-                <div style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><User size={14} /> {course.dosen}</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Calendar size={14} /> {course.hari}, {course.jam}</div>
+        <div style={{ marginBottom: '1.5rem' }}>
+          <div style={{
+            display: 'flex', gap: '1.25rem', overflowX: 'auto', paddingBottom: '1rem',
+            scrollSnapType: 'x mandatory', msOverflowStyle: 'none', scrollbarWidth: 'none'
+          }}>
+            {courses.map((course) => {
+              // Exact Tag Initials color from ETHOL
+              let tagBg = '#1779ba';
+              if (course.kode.toUpperCase() === 'WPF') tagBg = '#1779ba';
+              else if (course.kode.toUpperCase() === 'WDP') tagBg = '#00838f';
+              else if (course.kode.toUpperCase() === 'PPA') tagBg = '#8d6e63';
+
+              return (
+                <div key={course.id} style={{
+                  minWidth: '330px', maxWidth: '330px', flex: '0 0 auto', scrollSnapAlign: 'start',
+                  backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px',
+                  boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03)',
+                  display: 'flex', flexDirection: 'column', padding: '1.5rem', position: 'relative'
+                }}>
+                  {/* Top line: Title & initials block */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem' }}>
+                    <h3 style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0, color: '#333', lineHeight: 1.3, flex: 1 }}>
+                      {course.nama}
+                    </h3>
+                    <div style={{
+                      width: '42px', height: '42px', backgroundColor: tagBg, color: '#fff',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      borderRadius: '6px', fontSize: '0.8rem', fontWeight: 800, flexShrink: 0
+                    }}>
+                      {course.kode}
+                    </div>
+                  </div>
+
+                  {/* Lecturer */}
+                  <p style={{ fontSize: '0.85rem', color: '#666', margin: '0.5rem 0 0 0' }}>
+                    {course.dosen}
+                  </p>
+
+                  {/* Schedule */}
+                  <p style={{ fontSize: '0.8rem', color: '#888', margin: '1.5rem 0 1rem 0' }}>
+                    {course.hari !== 'Sesuai Jadwal' ? `${course.hari}, ${course.jam}` : 'Jadwal belum ditentukan'}
+                  </p>
+
+                  {/* Access button */}
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 'auto' }}>
+                    <Link href={`/mahasiswa/kuliah/${course.id}`} style={{
+                      display: 'flex', alignItems: 'center', gap: '0.35rem',
+                      textDecoration: 'none', color: '#1779ba', fontWeight: 600, fontSize: '0.85rem'
+                    }}>
+                      Akses Kuliah <ArrowRight size={14} />
+                    </Link>
+                  </div>
                 </div>
-              </div>
-              <div style={{ padding: '0.75rem 1.25rem', backgroundColor: 'var(--color-background)', borderTop: '1px solid var(--color-border)', marginTop: 'auto' }}>
-                <Link href={`/mahasiswa/kuliah/${course.id}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', textDecoration: 'none', color: 'var(--color-primary)', fontWeight: 600, fontSize: '0.85rem' }}>
-                  Akses Kelas <ArrowRight size={14} />
-                </Link>
-              </div>
-            </div>
-          ))}
+              );
+            })}
+          </div>
+
+          {/* Carousel Pagination Dots */}
+          <div style={{ display: 'flex', justifyContent: 'center', gap: '0.4rem', marginTop: '0.5rem' }}>
+            {courses.map((_, idx) => (
+              <span key={idx} style={{
+                width: '7px', height: '7px', borderRadius: '50%',
+                backgroundColor: idx === 0 ? '#1779ba' : '#ccc',
+                transition: 'background-color 0.2s'
+              }}></span>
+            ))}
+          </div>
         </div>
       )}
 
-      {/* Menu Grid */}
-      <h2 style={{ fontSize: '1.2rem', fontWeight: 700, margin: '0 0 1rem 0' }}>Menu</h2>
+      {/* Menu Grid (Matches circular ETHOL menu style exactly) */}
+      <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: '#333', margin: '1.5rem 0 1rem 0' }}>Menu</h2>
       <div style={{
-        display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: '1rem', marginBottom: '2rem'
+        display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '1rem', marginBottom: '2.5rem'
       }}>
-        {gridMenus.map((menu, i) => {
+        {[
+          { title: 'Kelas Virtual', icon: Video, color: '#1e88e5', bg: '#eef8fc', border: '#b3e5fc', href: '/mahasiswa/matakuliah' },
+          { title: 'Materi Perkuliahan', icon: Layers, color: '#ff8f00', bg: '#fffbf0', border: '#ffe082', href: '/mahasiswa/materi-perkuliahan' },
+          { title: 'Lab Virtual', icon: Laptop, color: '#00897b', bg: '#e8f5e9', border: '#a5d6a7', href: 'https://vlab.ethol.pens.ac.id/', external: true },
+          { title: 'Praktikum', icon: BookOpen, color: '#3949ab', bg: '#e8eaf6', border: '#c5cae9', href: '/mahasiswa/praktikum' },
+          { title: 'Administrasi', icon: Globe, color: '#d81b60', bg: '#fce4ec', border: '#f8bbd0', href: 'https://online.mis.pens.ac.id/', external: true },
+          { title: 'Perpustakaan', icon: Book, color: '#7cbd2a', bg: '#f1f8e9', border: '#dcedc8', href: 'https://ebook.pens.ac.id/', external: true },
+        ].map((menu, i) => {
           const content = (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '0.75rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '0.65rem' }}>
               <div style={{ 
-                width: '60px', height: '60px', borderRadius: '50%', 
-                backgroundColor: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.05)', color: menu.color, border: '1px solid var(--color-border)'
+                width: '74px', height: '74px', borderRadius: '50%', 
+                backgroundColor: menu.bg, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: menu.color, border: `1px solid ${menu.border}`,
+                boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)',
+                transition: 'all 0.2s ease-in-out'
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.transform = 'scale(1.08)';
+                e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.05)';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.transform = 'scale(1)';
+                e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.02)';
               }}>
-                <menu.icon size={28} />
+                <menu.icon size={30} />
               </div>
-              <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--color-text-primary)', lineHeight: 1.2 }}>
+              <span style={{ fontSize: '0.85rem', fontWeight: 500, color: '#444', lineHeight: 1.2 }}>
                 {menu.title} {menu.external && <ExternalLink size={10} style={{ display: 'inline', opacity: 0.5 }} />}
               </span>
             </div>
           );
           if (menu.external) {
-            return <a key={i} href={menu.href} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', transition: 'transform 0.2s' }} onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'} onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}>{content}</a>;
+            return <a key={i} href={menu.href} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>{content}</a>;
           }
-          return <Link key={i} href={menu.href} style={{ textDecoration: 'none', transition: 'transform 0.2s' }} onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'} onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}>{content}</Link>;
+          return <Link key={i} href={menu.href} style={{ textDecoration: 'none' }}>{content}</Link>;
         })}
       </div>
 

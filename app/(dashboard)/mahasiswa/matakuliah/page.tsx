@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../../../lib/supabase';
 import { useAuth } from '../../../../context/AuthContext';
-import { BookOpen, User, Calendar, MapPin, ArrowRight } from 'lucide-react';
+import { BookOpen, User, Calendar, ArrowRight, Loader2, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 
 interface EnrolledCourse {
@@ -47,7 +47,7 @@ export default function MahasiswaMatakuliahPage() {
               hari: mk.hari || 'Sesuai Jadwal',
               jam: mk.jam || 'Sesuai Jadwal',
               ruang: mk.ruang || 'Kelas Virtual / Offline',
-              kode: mk.kode || 'MK-PENS'
+              kode: mk.kode || 'MK'
             });
           }
         }
@@ -61,64 +61,52 @@ export default function MahasiswaMatakuliahPage() {
     }
   };
 
+  const handleSync = async (isSilent = false) => {
+    if (!user) return;
+    if (!isSilent) setSyncing(true);
+    try {
+      const res = await fetch('/api/mahasiswa/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: user.id }),
+      });
+      if (res.ok) {
+        await loadLocalCourses();
+      } else if (!isSilent) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.message || "Gagal sinkronisasi data dari ETHOL");
+      }
+    } catch (e: any) {
+      console.error(e);
+      if (!isSilent) alert(`Terjadi kesalahan sistem: ${e.message || e}`);
+    } finally {
+      if (!isSilent) setSyncing(false);
+    }
+  };
+
   useEffect(() => {
     let isMounted = true;
-    async function initRealtime() {
+    async function initPage() {
       if (!user) return;
       setLoading(true);
       await loadLocalCourses();
       if (isMounted) setLoading(false);
 
-      // Auto-sync in background to guarantee realtime parity
-      if (isMounted) setSyncing(true);
+      // Auto background sync on page load to pull real-time data automatically
       try {
-        const { data: session } = await supabase.auth.getSession();
-        const token = session?.session?.access_token || `bypass-token-for-${user.id}`;
-        if (token) {
-          const res = await fetch('/api/mahasiswa/cas-matakuliah', {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          if (res.ok && isMounted) {
-            await loadLocalCourses();
-          }
-        }
+        await handleSync(true);
       } catch (e) {
-        console.error('Background realtime sync failed', e);
-      } finally {
-        if (isMounted) setSyncing(false);
+        console.error(e);
       }
     }
-    initRealtime();
+    initPage();
     return () => { isMounted = false; };
   }, [user]);
-
-  const handleSync = async () => {
-    if (!user) return;
-    setSyncing(true);
-    try {
-      const { data: session } = await supabase.auth.getSession();
-      const token = session?.session?.access_token || `bypass-token-for-${user.id}`;
-      
-      const res = await fetch('/api/mahasiswa/cas-matakuliah', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (res.ok) {
-        await loadLocalCourses();
-      } else {
-        alert("Gagal sinkronisasi data dari ETHOL");
-      }
-    } catch (e: any) {
-      console.error(e);
-      alert(`Terjadi kesalahan sistem: ${e.message || e}`);
-    } finally {
-      setSyncing(false);
-    }
-  };
 
   return (
     <div className="animate-fade-in" style={{ padding: '1.5rem' }}>
       {/* Dropdown Filters matching ETHOL */}
-      <div style={{ display: 'flex', gap: '1.5rem', marginBottom: '2rem', alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: '1.5rem', marginBottom: '2rem', alignItems: 'center', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <label style={{ fontSize: '0.75rem', color: '#6c757d', marginBottom: '0.2rem', marginLeft: '0.2rem' }}>Tahun Ajaran</label>
           <select 
@@ -164,97 +152,120 @@ export default function MahasiswaMatakuliahPage() {
         </div>
 
         <button 
-          onClick={handleSync}
+          onClick={() => handleSync(false)}
           disabled={syncing}
           style={{
             marginLeft: 'auto',
-            padding: '0.5rem 1rem',
-            backgroundColor: 'transparent',
+            padding: '0.5rem 1.25rem',
+            backgroundColor: '#fff',
             border: '1px solid #ced4da',
             borderRadius: '4px',
             color: '#495057',
             fontSize: '0.85rem',
+            fontWeight: 600,
             cursor: syncing ? 'not-allowed' : 'pointer',
             opacity: syncing ? 0.7 : 1,
             display: 'flex',
             alignItems: 'center',
             gap: '0.5rem',
             alignSelf: 'flex-end',
-            marginBottom: '1px'
+            marginBottom: '1px',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
           }}
         >
-          {syncing ? 'Menyinkronkan...' : 'Sinkronisasi Ulang'}
+          {syncing ? <Loader2 size={14} className="spin-icon" /> : <RefreshCw size={14} style={{ color: 'var(--color-primary)' }} />}
+          <span>{syncing ? 'Menyinkronkan...' : 'Sinkronisasi Ulang'}</span>
         </button>
       </div>
 
       {loading ? (
-        <div className="p-6 text-muted">Memuat kelas aktif dari sistem...</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '40vh', flexDirection: 'column', gap: '1rem' }}>
+          <Loader2 size={28} className="spin-icon" style={{ color: 'var(--color-primary)' }} />
+          <p style={{ color: '#6c757d', fontSize: '0.9rem' }}>Memuat kelas aktif dari sistem...</p>
+        </div>
       ) : courses.length === 0 ? (
-        <div className="p-6 text-muted" style={{ textAlign: 'center', backgroundColor: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border)' }}>
-          <p>Belum ada data matakuliah. Silakan lakukan sinkronisasi dari dashboard utama.</p>
+        <div className="p-8 text-muted" style={{ textAlign: 'center', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+          <BookOpen size={40} style={{ color: '#cbd5e1', marginBottom: '1rem' }} />
+          <p style={{ margin: 0, fontSize: '0.95rem', fontWeight: 500, color: '#64748b' }}>Belum ada data matakuliah.</p>
+          <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.85rem', color: '#94a3b8' }}>Silakan lakukan sinkronisasi ulang untuk menarik data matakuliah terbaru dari ETHOL.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-3 gap-6">
-          {courses.map((course) => (
-            <div
-              key={course.id}
-              className="card p-5"
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-                transition: 'transform var(--transition-fast), box-shadow var(--transition-fast)',
-                border: '1px solid var(--color-border)',
-              }}
-            >
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.25rem' }}>
-                  <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#333', margin: 0, lineHeight: 1.3, flex: 1 }}>
-                    {course.nama}
-                  </h3>
-                  <span
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+          gap: '1.5rem'
+        }}>
+          {courses.map((course) => {
+            // Map tag initials color identical to ETHOL Gambar 2
+            let tagBg = '#1779ba';
+            const code = course.kode || course.nama.split(' ').map(w => w[0]).join('').substring(0, 3).toUpperCase();
+            const upperCode = code.toUpperCase();
+            
+            if (upperCode === 'WPF') tagBg = '#1779ba'; // Blue
+            else if (upperCode === 'WDP') tagBg = '#00838f'; // Teal
+            else if (upperCode === 'PPA') tagBg = '#8d6e63'; // Brown
+            else if (upperCode === 'BI') tagBg = '#455a64'; // Grey Blue
+            else if (upperCode === 'WAD') tagBg = '#4caf50'; // Green
+            else if (upperCode === 'WAB') tagBg = '#1565c0'; // Dark Blue
+            
+            return (
+              <div
+                key={course.id}
+                style={{
+                  backgroundColor: '#fff',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  padding: '1.5rem',
+                  position: 'relative',
+                  minHeight: '200px'
+                }}
+              >
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem' }}>
+                    <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#333', margin: 0, lineHeight: 1.3, flex: 1 }}>
+                      {course.nama}
+                    </h3>
+                    <div style={{
+                      width: '42px', height: '42px', backgroundColor: tagBg, color: '#fff',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      borderRadius: '6px', fontSize: '0.8rem', fontWeight: 800, flexShrink: 0
+                    }}>
+                      {code}
+                    </div>
+                  </div>
+                  
+                  <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.875rem', color: '#666' }}>
+                    {course.dosen}
+                  </p>
+
+                  <p style={{ margin: '1.5rem 0 0 0', fontSize: '0.8rem', color: '#888' }}>
+                    {course.hari !== 'Sesuai Jadwal' ? `${course.hari}, ${course.jam}` : 'Jadwal belum ditentukan'}
+                  </p>
+                </div>
+
+                <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end' }}>
+                  <Link
+                    href={`/mahasiswa/kuliah/${course.id}`}
                     style={{
-                      fontSize: '0.75rem',
-                      fontWeight: 700,
-                      backgroundColor: 'var(--color-primary)',
-                      color: '#ffffff',
-                      padding: '0.35rem 0.5rem',
-                      borderRadius: '4px',
-                      marginLeft: '0.5rem'
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.25rem',
+                      color: '#1779ba',
+                      fontWeight: 600,
+                      fontSize: '0.85rem',
+                      textDecoration: 'none'
                     }}
                   >
-                    {course.nama.split(' ').map(w => w[0]).join('').substring(0, 3).toUpperCase()}
-                  </span>
+                    <span>Akses Kuliah</span>
+                    <ArrowRight size={14} />
+                  </Link>
                 </div>
-                
-                <p style={{ margin: '0 0 1rem 0', fontSize: '0.85rem', color: '#6c757d' }}>
-                  {course.dosen}
-                </p>
-
-                <p style={{ margin: 0, fontSize: '0.85rem', color: '#6c757d' }}>
-                  {course.hari}, {course.jam}
-                </p>
               </div>
-
-              <div style={{ marginTop: '1.5rem', textAlign: 'right' }}>
-                <Link
-                  href={`/mahasiswa/kuliah/${course.id}`}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '0.25rem',
-                    color: 'var(--color-primary)',
-                    fontWeight: 600,
-                    fontSize: '0.875rem',
-                    textDecoration: 'none'
-                  }}
-                >
-                  <span>Akses Kuliah</span>
-                  <ArrowRight size={16} />
-                </Link>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

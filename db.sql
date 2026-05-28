@@ -48,7 +48,7 @@ RETURNS UUID AS $$
   SELECT id FROM auth.users WHERE LOWER(email) = LOWER(email_addr) LIMIT 1;
 $$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public;
 
-DO $$ BEGIN CREATE TYPE user_role AS ENUM ('admin', 'dosen_wali', 'mahasiswa'); EXCEPTION WHEN duplicate_object THEN null; END $$;
+DO $$ BEGIN CREATE TYPE user_role AS ENUM ('dosen_wali', 'mahasiswa'); EXCEPTION WHEN duplicate_object THEN null; END $$;
 
 DO $$ BEGIN CREATE TYPE status_akademik AS ENUM (
   'aktif', 'cuti', 'mengundurkan_diri', 'drop_out', 'lulus'
@@ -621,11 +621,6 @@ CREATE POLICY "users: lihat profil sendiri"
   ON public.users FOR SELECT
   USING (id = auth.uid());
 
-DROP POLICY IF EXISTS "users: admin lihat semua" ON public.users;
-CREATE POLICY "users: admin lihat semua"
-  ON public.users FOR SELECT
-  USING (public.get_current_user_role() = 'admin');
-
 DROP POLICY IF EXISTS "users: update profil sendiri" ON public.users;
 CREATE POLICY "users: update profil sendiri"
   ON public.users FOR UPDATE
@@ -641,12 +636,6 @@ CREATE POLICY "dosen_wali: mahasiswa lihat semua dosen"
   ON public.dosen_wali FOR SELECT
   USING (TRUE);
 
-DROP POLICY IF EXISTS "dosen_wali: admin full access" ON public.dosen_wali;
-CREATE POLICY "dosen_wali: admin full access"
-  ON public.dosen_wali FOR ALL
-  USING (public.get_current_user_role() = 'admin');
-
-
 DROP POLICY IF EXISTS "mahasiswa: lihat data sendiri" ON public.mahasiswa;
 CREATE POLICY "mahasiswa: lihat data sendiri"
   ON public.mahasiswa FOR SELECT
@@ -658,12 +647,6 @@ CREATE POLICY "mahasiswa: dosen wali lihat binaan"
   USING (
     dosen_wali_id = public.get_current_dosen_wali_id()
   );
-
-DROP POLICY IF EXISTS "mahasiswa: admin full access" ON public.mahasiswa;
-CREATE POLICY "mahasiswa: admin full access"
-  ON public.mahasiswa FOR ALL
-  USING (public.get_current_user_role() = 'admin');
-
 
 DROP POLICY IF EXISTS "nilai: mahasiswa lihat nilai sendiri" ON public.nilai_mahasiswa;
 CREATE POLICY "nilai: mahasiswa lihat nilai sendiri"
@@ -681,12 +664,6 @@ CREATE POLICY "nilai: dosen wali lihat nilai binaan"
     )
   );
 
-DROP POLICY IF EXISTS "nilai: admin full access" ON public.nilai_mahasiswa;
-CREATE POLICY "nilai: admin full access"
-  ON public.nilai_mahasiswa FOR ALL
-  USING (public.get_current_user_role() = 'admin');
-
-
 DROP POLICY IF EXISTS "kehadiran: mahasiswa lihat sendiri" ON public.kehadiran;
 CREATE POLICY "kehadiran: mahasiswa lihat sendiri"
   ON public.kehadiran FOR SELECT
@@ -702,12 +679,6 @@ CREATE POLICY "kehadiran: dosen wali lihat binaan"
         AND dosen_wali_id = public.get_current_dosen_wali_id()
     )
   );
-
-DROP POLICY IF EXISTS "kehadiran: admin full access" ON public.kehadiran;
-CREATE POLICY "kehadiran: admin full access"
-  ON public.kehadiran FOR ALL
-  USING (public.get_current_user_role() = 'admin');
-
 
 DROP POLICY IF EXISTS "notifikasi: user lihat milik sendiri" ON public.notifikasi;
 CREATE POLICY "notifikasi: user lihat milik sendiri"
@@ -730,12 +701,6 @@ CREATE POLICY "catatan: mahasiswa lihat catatan sendiri"
   ON public.catatan_perwalian FOR SELECT
   USING (mahasiswa_id = public.get_current_mahasiswa_id());
 
-DROP POLICY IF EXISTS "catatan: admin full access" ON public.catatan_perwalian;
-CREATE POLICY "catatan: admin full access"
-  ON public.catatan_perwalian FOR ALL
-  USING (public.get_current_user_role() = 'admin');
-
-
 DROP POLICY IF EXISTS "alert: dosen wali lihat alert binaan" ON public.alert_akademik;
 CREATE POLICY "alert: dosen wali lihat alert binaan"
   ON public.alert_akademik FOR SELECT
@@ -752,12 +717,6 @@ CREATE POLICY "alert: mahasiswa lihat alert sendiri"
   ON public.alert_akademik FOR SELECT
   USING (mahasiswa_id = public.get_current_mahasiswa_id());
 
-DROP POLICY IF EXISTS "alert: admin full access" ON public.alert_akademik;
-CREATE POLICY "alert: admin full access"
-  ON public.alert_akademik FOR ALL
-  USING (public.get_current_user_role() = 'admin');
-
-
 DROP POLICY IF EXISTS "semester: semua bisa baca" ON public.semester;
 CREATE POLICY "semester: semua bisa baca"
   ON public.semester FOR SELECT
@@ -767,11 +726,6 @@ DROP POLICY IF EXISTS "matkul: semua bisa baca" ON public.mata_kuliah;
 CREATE POLICY "matkul: semua bisa baca"
   ON public.mata_kuliah FOR SELECT
   USING (TRUE);
-
-DROP POLICY IF EXISTS "konfigurasi_alert: admin full access" ON public.konfigurasi_alert;
-CREATE POLICY "konfigurasi_alert: admin full access"
-  ON public.konfigurasi_alert FOR ALL
-  USING (public.get_current_user_role() = 'admin');
 
 DROP POLICY IF EXISTS "konfigurasi_alert: semua bisa baca" ON public.konfigurasi_alert;
 CREATE POLICY "konfigurasi_alert: semua bisa baca"
@@ -789,12 +743,6 @@ CREATE POLICY "jadwal: dosen wali kelola jadwal sendiri"
   ON public.jadwal_konsultasi FOR ALL
   USING (dosen_wali_id = public.get_current_dosen_wali_id());
 
-DROP POLICY IF EXISTS "jadwal: admin full access" ON public.jadwal_konsultasi;
-CREATE POLICY "jadwal: admin full access"
-  ON public.jadwal_konsultasi FOR ALL
-  USING (public.get_current_user_role() = 'admin');
-
-
 DROP POLICY IF EXISTS "ipk: mahasiswa lihat sendiri" ON public.ipk_history;
 CREATE POLICY "ipk: mahasiswa lihat sendiri"
   ON public.ipk_history FOR SELECT
@@ -810,12 +758,6 @@ CREATE POLICY "ipk: dosen wali lihat binaan"
         AND dosen_wali_id = public.get_current_dosen_wali_id()
     )
   );
-
-DROP POLICY IF EXISTS "ipk: admin full access" ON public.ipk_history;
-CREATE POLICY "ipk: admin full access"
-  ON public.ipk_history FOR ALL
-  USING (public.get_current_user_role() = 'admin');
-
 
 INSERT INTO public.semester (kode, nama, tahun_akademik, tipe, tanggal_mulai, tanggal_selesai, is_aktif)
 VALUES
@@ -855,11 +797,12 @@ CREATE TRIGGER trg_ethol_sessions_updated_at
 CREATE TABLE IF NOT EXISTS public.tugas (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   mahasiswa_id UUID NOT NULL REFERENCES public.mahasiswa(id) ON DELETE CASCADE,
-  mata_kuliah_id UUID NOT NULL REFERENCES public.mata_kuliah(id) ON DELETE CASCADE,
+  mata_kuliah_id UUID REFERENCES public.mata_kuliah(id) ON DELETE SET NULL,
   judul TEXT NOT NULL,
   deadline TIMESTAMPTZ,
   status TEXT NOT NULL DEFAULT 'Belum mengumpulkan',
   color TEXT DEFAULT '#ef4444',
+  sumber_ethol TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -879,10 +822,12 @@ CREATE TRIGGER trg_tugas_updated_at
 CREATE TABLE IF NOT EXISTS public.pengumuman (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   judul TEXT NOT NULL,
-  publisher TEXT NOT NULL,
-  tanggal DATE NOT NULL,
+  publisher TEXT NOT NULL DEFAULT 'PENS',
+  tanggal DATE NOT NULL DEFAULT CURRENT_DATE,
+  isi TEXT,
   file_name TEXT,
   file_url TEXT,
+  sumber_url TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
