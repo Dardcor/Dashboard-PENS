@@ -265,7 +265,22 @@ async function followRedirectChain(startUrl: string, initialCookies: Record<stri
 async function casLogin(netId: string, password: string) {
   const username = netId.trim();
   console.log(`[CAS] Menggunakan NetID lengkap untuk CAS: '${username}'`);
-  return await casLoginViaRest(username, password);
+  
+  // Coba login via REST API terlebih dahulu
+  const restResult = await casLoginViaRest(username, password);
+  
+  if (restResult.success) {
+    return restResult;
+  }
+  
+  // Jika REST API diblokir (misalnya oleh WAF atau IP Vercel Datacenter), gunakan fallback form scraping
+  if ('restAvailable' in restResult && restResult.restAvailable === false) {
+    console.log('[CAS] REST API diblokir atau tidak tersedia. Mencoba fallback ke Form Login...');
+    return await casLoginViaForm(username, password);
+  }
+
+  // Jika gagal login murni karena password/netid salah
+  return restResult;
 }
 
 async function scrapeProfile(cookieStr: string) {
