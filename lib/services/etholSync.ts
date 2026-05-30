@@ -75,94 +75,122 @@ export async function syncEtholData(userId: string, cookie: string) {
       if (!course.id_kuliah) continue;
 
       const etholCourseId = String(course.id_kuliah);
+      const namaMatkul = course.matakuliah || course.nama || 'Tanpa Nama';
       
-      await prisma.mataKuliah.upsert({
-        where: { ethol_course_id: etholCourseId },
-        update: {
-          nama: course.matakuliah || course.nama || 'Tanpa Nama',
-          sks: course.sks ? parseInt(course.sks) : 0,
-          dosen: course.dosen || 'Belum Ditentukan',
-          hari: course.hari || '',
-          jam: course.jam || '',
-          ruang: course.ruang || ''
-        },
-        create: {
-          ethol_course_id: etholCourseId,
-          kode: course.kode_mk || `ETHOL-${course.id_kuliah}`,
-          nama: course.matakuliah || course.nama || 'Tanpa Nama',
-          sks: course.sks ? parseInt(course.sks) : 0,
-          prodi: user.mahasiswa.prodi,
-          jurusan: user.mahasiswa.jurusan,
-          dosen: course.dosen || 'Belum Ditentukan',
-          hari: course.hari || '',
-          jam: course.jam || '',
-          ruang: course.ruang || ''
+      // Validasi apakah mata kuliah dengan nama tersebut sudah ada
+      let existingMk = await prisma.mataKuliah.findFirst({
+        where: { 
+          OR: [
+            { ethol_course_id: etholCourseId },
+            { nama: { contains: namaMatkul.substring(0, 15) } }
+          ]
         }
       });
+
+      if (existingMk) {
+        // Update existing mk
+        await prisma.mataKuliah.update({
+          where: { id: existingMk.id },
+          data: {
+            ethol_course_id: etholCourseId, // set ID if it was null
+            nama: namaMatkul,
+            sks: course.sks ? parseInt(course.sks) : existingMk.sks,
+            dosen: course.dosen || existingMk.dosen,
+            hari: course.hari || existingMk.hari,
+            jam: course.jam || existingMk.jam,
+            ruang: course.ruang || existingMk.ruang,
+            kode: course.kode_mk || existingMk.kode
+          }
+        });
+      } else {
+        // Create new
+        await prisma.mataKuliah.create({
+          data: {
+            ethol_course_id: etholCourseId,
+            kode: course.kode_mk || `ETHOL-${course.id_kuliah}`,
+            nama: namaMatkul,
+            sks: course.sks ? parseInt(course.sks) : 0,
+            prodi: user.mahasiswa.prodi,
+            jurusan: user.mahasiswa.jurusan,
+            dosen: course.dosen || 'Belum Ditentukan',
+            hari: course.hari || '',
+            jam: course.jam || '',
+            ruang: course.ruang || ''
+          }
+        });
+      }
     }
 
     // 4. Sinkronisasi Tugas (Assignments)
     console.log('[SYNC] Menarik data Tugas...');
-    const assignmentsResponse = await getLatestAssignments(token);
-    const assignments = assignmentsResponse?.data || [];
+    try {
+      const assignmentsResponse = await getLatestAssignments(token);
+      const assignments = assignmentsResponse?.data || [];
 
-    for (const tugas of assignments) {
-      if (!tugas.id_tugas) continue;
-      
-      // Cari mata kuliah berdasarkan nama tugas jika tidak ada id spesifik
-      const mk = await prisma.mataKuliah.findFirst({
-        where: { nama: { contains: tugas.matakuliah || '' } }
-      });
+      for (const tugas of assignments) {
+        if (!tugas.id_tugas) continue;
+        
+        // Cari mata kuliah berdasarkan nama tugas jika tidak ada id spesifik
+        const mk = await prisma.mataKuliah.findFirst({
+          where: { nama: { contains: tugas.matakuliah || '' } }
+        });
 
-      await prisma.tugas.upsert({
-        where: { ethol_tugas_id: parseInt(tugas.id_tugas) },
-        update: {
-          judul: tugas.judul || 'Tugas Tanpa Judul',
-          deskripsi: tugas.keterangan || '',
-          deadline: tugas.waktu_selesai ? new Date(tugas.waktu_selesai) : null,
-          status: tugas.waktu_kumpul ? 'Sudah mengumpulkan' : 'Belum mengumpulkan',
-          sumber_ethol: JSON.stringify(tugas)
-        },
-        create: {
-          ethol_tugas_id: parseInt(tugas.id_tugas),
-          mahasiswa_id: mahasiswaId,
-          mata_kuliah_id: mk?.id || null,
-          judul: tugas.judul || 'Tugas Tanpa Judul',
-          deskripsi: tugas.keterangan || '',
-          deadline: tugas.waktu_selesai ? new Date(tugas.waktu_selesai) : null,
-          status: tugas.waktu_kumpul ? 'Sudah mengumpulkan' : 'Belum mengumpulkan',
-          sumber_ethol: JSON.stringify(tugas),
-          color: 'blue'
-        }
-      });
+        await prisma.tugas.upsert({
+          where: { ethol_tugas_id: parseInt(tugas.id_tugas) },
+          update: {
+            judul: tugas.judul || 'Tugas Tanpa Judul',
+            deskripsi: tugas.keterangan || '',
+            deadline: tugas.waktu_selesai ? new Date(tugas.waktu_selesai) : null,
+            status: tugas.waktu_kumpul ? 'Sudah mengumpulkan' : 'Belum mengumpulkan',
+            sumber_ethol: JSON.stringify(tugas)
+          },
+          create: {
+            ethol_tugas_id: parseInt(tugas.id_tugas),
+            mahasiswa_id: mahasiswaId,
+            mata_kuliah_id: mk?.id || null,
+            judul: tugas.judul || 'Tugas Tanpa Judul',
+            deskripsi: tugas.keterangan || '',
+            deadline: tugas.waktu_selesai ? new Date(tugas.waktu_selesai) : null,
+            status: tugas.waktu_kumpul ? 'Sudah mengumpulkan' : 'Belum mengumpulkan',
+            sumber_ethol: JSON.stringify(tugas),
+            color: 'blue'
+          }
+        });
+      }
+    } catch (e: any) {
+      console.log(`[SYNC] Gagal menarik data Tugas: ${e.message}`);
     }
 
     // 5. Sinkronisasi Pengumuman
     console.log('[SYNC] Menarik data Pengumuman...');
-    const annResponse = await getLatestAnnouncements(token);
-    const announcements = annResponse?.data || [];
+    try {
+      const annResponse = await getLatestAnnouncements(token);
+      const announcements = annResponse?.data || [];
 
-    for (const ann of announcements) {
-      if (!ann.id_pengumuman) continue;
+      for (const ann of announcements) {
+        if (!ann.id_pengumuman) continue;
 
-      await prisma.pengumuman.upsert({
-        where: { ethol_pengumuman_id: parseInt(ann.id_pengumuman) },
-        update: {
-          judul: ann.judul || 'Tanpa Judul',
-          isi: ann.pengumuman || '',
-          tanggal: ann.waktu_mulai ? new Date(ann.waktu_mulai) : new Date(),
-          publisher: ann.dosen || ann.oleh || 'ETHOL',
-          file_url: ann.file ? `https://ethol.pens.ac.id/api/file/${ann.file}` : null
-        },
-        create: {
-          ethol_pengumuman_id: parseInt(ann.id_pengumuman),
-          judul: ann.judul || 'Tanpa Judul',
-          isi: ann.pengumuman || '',
-          tanggal: ann.waktu_mulai ? new Date(ann.waktu_mulai) : new Date(),
-          publisher: ann.dosen || ann.oleh || 'ETHOL',
-          file_url: ann.file ? `https://ethol.pens.ac.id/api/file/${ann.file}` : null
-        }
-      });
+        await prisma.pengumuman.upsert({
+          where: { ethol_pengumuman_id: parseInt(ann.id_pengumuman) },
+          update: {
+            judul: ann.judul || 'Tanpa Judul',
+            isi: ann.pengumuman || '',
+            tanggal: ann.waktu_mulai ? new Date(ann.waktu_mulai) : new Date(),
+            publisher: ann.dosen || ann.oleh || 'ETHOL',
+            file_url: ann.file ? `https://ethol.pens.ac.id/api/file/${ann.file}` : null
+          },
+          create: {
+            ethol_pengumuman_id: parseInt(ann.id_pengumuman),
+            judul: ann.judul || 'Tanpa Judul',
+            isi: ann.pengumuman || '',
+            tanggal: ann.waktu_mulai ? new Date(ann.waktu_mulai) : new Date(),
+            publisher: ann.dosen || ann.oleh || 'ETHOL',
+            file_url: ann.file ? `https://ethol.pens.ac.id/api/file/${ann.file}` : null
+          }
+        });
+      }
+    } catch (e: any) {
+      console.log(`[SYNC] Gagal menarik data Pengumuman: ${e.message}`);
     }
 
     // 6. Menyimpan Kehadiran per Mata Kuliah (Opsional/Iterasi)

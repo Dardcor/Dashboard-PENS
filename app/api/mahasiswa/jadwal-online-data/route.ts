@@ -99,6 +99,7 @@ export async function GET(request: NextRequest) {
       return map[h.toLowerCase().trim()] || h;
     }
 
+    let scrapedSchedule: any[] = [];
     try {
       const { data: session } = await supaAdmin.from('user_ethol_sessions').select('ethol_cookie').eq('user_id', userId).maybeSingle();
       
@@ -120,20 +121,13 @@ export async function GET(request: NextRequest) {
             
             // ─── 2. SAVE EACH SCRAPED ITEM TO SUPABASE ───
             for (const j of res.data) {
-              // ETHOL fields: matakuliah, hari, jam_awal, jam_akhir, dosen, ruang, gelar_dpn, gelar_blk
               const matkul = (j.matakuliah || '').trim();
               if (!matkul) continue;
-
               const hari = normalizeHari(j.hari);
-              
-              // Build jam from jam_awal + jam_akhir (ETHOL does NOT have a "jam" field)
               const jamAwal = (j.jam_awal || '').trim();
               const jamAkhir = (j.jam_akhir || '').trim();
               const jam = jamAwal && jamAkhir ? `${jamAwal} - ${jamAkhir}` : 'Sesuai Jadwal';
-              
               const ruang = (j.ruang || '').trim() || 'Kelas Offline';
-              
-              // Build full dosen name with gelar
               const dosenName = (j.dosen || '').trim();
               const gelarDpn = (j.gelar_dpn || '').trim();
               const gelarBlk = (j.gelar_blk || '').trim();
@@ -141,39 +135,48 @@ export async function GET(request: NextRequest) {
 
               console.log(`  → ${matkul}: ${hari}, ${jam}, ruang=${ruang}, dosen=${dosenFull}`);
               await updateMataKuliahJadwal(matkul, hari, jam, ruang, dosenFull);
+
+              // Add to memory list
+              scrapedSchedule.push({
+                nama: matkul,
+                dosen: dosenFull,
+                sks: j.sks || 3,
+                hari: hari,
+                jam: jam,
+                ruang: ruang,
+                kode: j.kode_mk || j.kode || '',
+              });
             }
             console.log('[jadwal-online-data] All items saved to Supabase successfully.');
           } else {
             console.log('[jadwal-online-data] ETHOL API returned empty/invalid data. status=', res.status, 'dataLength=', res.data?.length);
           }
-        } else {
-          console.log('[jadwal-online-data] Could not extract JWT from cookie. Skipping scrape.');
         }
-      } else {
-        console.log('[jadwal-online-data] No ethol session found for user. Skipping scrape.');
       }
     } catch (scrapeErr: any) {
       console.error('[jadwal-online-data] Scraping error (serving from DB):', scrapeErr.message);
     }
 
-
-    // ─── 3. FETCH AND SERVE DATA FROM SUPABASE ───
-    const { data: rows, error } = await supaAdmin
-      .from('kehadiran')
-      .select('mata_kuliah:mata_kuliah_id(id, nama, kode, sks, dosen, hari, jam, ruang)')
-      .eq('mahasiswa_id', mhsId);
-
-    if (error) {
-      console.error('[jadwal-online-data]', error.message);
-      return NextResponse.json({ jadwal: {} });
-    }
-
     // De-duplicate by course name
     const uniqueByName = new Map<string, any>();
-    for (const k of (rows || [])) {
+    
+    // Fill from scraped data first
+    for (const sc of scrapedSchedule) {
+      if (sc.nama) uniqueByName.set(sc.nama, sc);
+    }
+
+    // ─── 3. FETCH AND SERVE DATA FROM SUPABASE (as fallback/merge) ───
+    const [{ data: rowsK }, { data: rowsN }] = await Promise.all([
+      supaAdmin.from('kehadiran').select('mata_kuliah:mata_kuliah_id(id, nama, kode, sks, dosen, hari, jam, ruang)').eq('mahasiswa_id', mhsId),
+      supaAdmin.from('nilai_mahasiswa').select('mata_kuliah:mata_kuliah_id(id, nama, kode, sks, dosen, hari, jam, ruang)').eq('mahasiswa_id', mhsId)
+    ]);
+
+    const allDbRows = [...(rowsK || []), ...(rowsN || [])];
+
+    for (const k of allDbRows) {
       const mk = k.mata_kuliah as any;
       if (!mk || !mk.nama) continue;
-      if (uniqueByName.has(mk.nama)) continue;
+      if (uniqueByName.has(mk.nama)) continue; // Keep scraped data if exists
       uniqueByName.set(mk.nama, mk);
     }
 
@@ -184,10 +187,7 @@ export async function GET(request: NextRequest) {
 
     for (const [nama, mk] of uniqueByName) {
       let hari = mk.hari;
-      
-      // Normalize hari in case DB still has old format like "Jum'at"
       if (hari && hari.toLowerCase().includes("jum")) hari = 'Jumat';
-      
       if (!hari || hari === 'Sesuai Jadwal' || !DAYS.includes(hari)) {
         hari = 'Belum Terjadwal';
       }

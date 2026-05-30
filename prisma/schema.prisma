@@ -185,7 +185,7 @@ model Semester {
 
 model MataKuliah {
   id              String      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  kode            String      @unique
+  kode            String
   nama            String
   sks             Int
   prodi           String

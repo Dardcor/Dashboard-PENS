@@ -88,7 +88,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .eq('id', userId)
         .single();
 
-      if (error || !data) throw error || new Error("User not found");
+      if (error || !data) {
+        console.warn("Verifikasi DB gagal/RLS memblokir:", error?.message);
+        setLoading(false);
+        return; // Jangan logout otomatis, pertahankan session lokal
+      }
 
       setUser(data as PublicUser);
       setRole(data.role as UserRole);
@@ -96,15 +100,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem('pens_local_session', JSON.stringify(data));
       }
     } catch (error) {
-      console.error("Verifikasi gagal (User tidak ditemukan):", error);
-      // Hapus sesi lokal dan sign out karena DB kosong atau user dihapus
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('pens_local_session');
-      }
-      setUser(null);
-      setRole(null);
-      setSession(null);
-      await supabase.auth.signOut();
+      console.error("Kesalahan jaringan/verifikasi:", error);
     } finally {
       setLoading(false);
     }

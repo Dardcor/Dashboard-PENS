@@ -992,25 +992,20 @@ export async function POST(request: NextRequest) {
     }
     console.log(`[CAS] Dynamic parameters: tahun=${tahun}, semester=${academicSemester}`);
 
-    const [profile, nilaiList, kehadiranList, tugasList, pengumumanList, matkulDetailList] = await Promise.all([
+    const [profile] = await Promise.all([
       scrapeProfile(casResult.etholCookieStr, jwt),
-      scrapeNilai(casResult.etholCookieStr),
-      scrapeKehadiran(casResult.etholCookieStr),
-      scrapeTugas(casResult.etholCookieStr, jwt, tahun, academicSemester),
-      scrapePengumuman(casResult.etholCookieStr, jwt),
-      scrapeMatakuliahDetail(casResult.etholCookieStr, jwt, tahun, academicSemester),
     ]);
 
-    console.log(`[CAS] Scraping done: profil=${profile.fullName ?? '?'}, nilai=${nilaiList.length}, kehadiran=${kehadiranList.length}, tugas=${tugasList.length}, pengumuman=${pengumumanList.length}, matkul=${matkulDetailList.length}`);
+    console.log(`[CAS] Scraping done: profil=${profile.fullName ?? '?'}`);
 
-    const userInfo = await syncToSupabase(supa, netId.trim(), profile, nilaiList, kehadiranList, tugasList, pengumumanList, matkulDetailList, casResult.etholCookieStr);
+    const userInfo = await syncToSupabase(supa, netId.trim(), profile, [], [], [], [], [], casResult.etholCookieStr);
     console.log(`[CAS] ✓ Sync selesai: ${userInfo.email} (${userInfo.role})`);
 
     // ── Sinkronisasi Mendalam (Prisma) ──
     try {
-      console.log(`[CAS] Memulai sinkronisasi mendalam menggunakan Prisma...`);
-      const prismaSyncResult = await syncEtholData(userInfo.uid, casResult.etholCookieStr);
-      console.log(`[CAS] Prisma Sync:`, prismaSyncResult.message);
+      console.log(`[CAS] Memulai sinkronisasi mendalam (Background)...`);
+      // Jalankan sinkronisasi di background (tidak di-await) agar login langsung masuk
+      syncEtholData(userInfo.uid, casResult.etholCookieStr).catch(e => console.error(`[CAS] Background sync failed:`, e.message));
     } catch (e: any) {
       console.error(`[CAS] Prisma Sync failed: ${e.message}`);
     }
@@ -1032,7 +1027,7 @@ export async function POST(request: NextRequest) {
       fullName: profile.fullName || userInfo.email.split('@')[0],
       access_token: tokens.access_token || null,
       refresh_token: tokens.refresh_token || null,
-      stats: { nilai: nilaiList.length, kehadiran: kehadiranList.length, tugas: tugasList.length, pengumuman: pengumumanList.length },
+      stats: { nilai: 0, kehadiran: 0, tugas: 0, pengumuman: 0 },
     });
 
   } catch (err) {
