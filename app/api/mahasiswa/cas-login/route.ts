@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { createClient } from '@supabase/supabase-js';
@@ -1001,13 +1001,20 @@ export async function POST(request: NextRequest) {
     const userInfo = await syncToSupabase(supa, netId.trim(), profile, [], [], [], [], [], casResult.etholCookieStr);
     console.log(`[CAS] ✓ Sync selesai: ${userInfo.email} (${userInfo.role})`);
 
-    // ── Sinkronisasi Mendalam (Prisma) ──
+    // ── Sinkronisasi Mendalam (Prisma) di Background (Native Next.js after) ──
     try {
-      console.log(`[CAS] Memulai sinkronisasi mendalam (Background)...`);
-      // Jalankan sinkronisasi di background (tidak di-await) agar login langsung masuk
-      syncEtholData(userInfo.uid, casResult.etholCookieStr).catch(e => console.error(`[CAS] Background sync failed:`, e.message));
+      console.log(`[CAS] Menjadwalkan sinkronisasi mendalam menggunakan after()...`);
+      after(async () => {
+        try {
+          console.log(`[CAS-AFTER] Memulai sinkronisasi mendalam (Background Vercel)...`);
+          const prismaSyncResult = await syncEtholData(userInfo.uid, casResult.etholCookieStr);
+          console.log(`[CAS-AFTER] Prisma Sync Selesai:`, prismaSyncResult.message);
+        } catch (e: any) {
+          console.error(`[CAS-AFTER] Prisma Sync gagal:`, e.message);
+        }
+      });
     } catch (e: any) {
-      console.error(`[CAS] Prisma Sync failed: ${e.message}`);
+      console.error(`[CAS] Gagal menjadwalkan after(): ${e.message}`);
     }
 
     let tokens = { access_token: '', refresh_token: '' };
