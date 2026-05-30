@@ -4,6 +4,7 @@ import * as cheerio from 'cheerio';
 import { createClient } from '@supabase/supabase-js';
 import { SignJWT } from 'jose';
 import * as etholApi from '../../../../lib/ethol-api';
+import { syncEtholData } from '../../../../lib/services/etholSync';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -24,7 +25,7 @@ const HEADERS = {
 };
 
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-const rnd = (a: number, b: number) => delay(Math.floor(Math.random() * (b - a + 1)) + a);
+const rnd = (a: number, b: number) => delay(0); // Dihapus delay untuk Vercel agar tidak timeout
 
 function parseCookies(raw: string[] = []): Record<string, string> {
   const out: Record<string, string> = {};
@@ -286,7 +287,21 @@ async function casLogin(netId: string, password: string) {
   return restResult;
 }
 
-async function scrapeProfile(cookieStr: string) {
+async function scrapeProfile(cookieStr: string, jwt: string | null) {
+  let jwtNrp: string | null = null;
+  let jwtName: string | null = null;
+  if (jwt) {
+    try {
+      const payloadStr = Buffer.from(jwt.split('.')[1], 'base64').toString('utf8');
+      const payload = JSON.parse(payloadStr);
+      jwtNrp = (payload.nomor || payload.nrp || payload.userid || payload.nim || payload.username || '').toString().trim();
+      if (!jwtNrp?.match(/^\d{8,14}$/)) jwtNrp = null;
+      jwtName = payload.nama || payload.name || payload.full_name || null;
+    } catch (e) {
+      console.log('[SCRAPE] Gagal decode JWT profile:', (e as Error).message);
+    }
+  }
+
   const urls = [
     `${ETHOL_BASE}/my/`,
     `${ETHOL_BASE}/user/profile.php`,
@@ -307,6 +322,7 @@ async function scrapeProfile(cookieStr: string) {
       if ($('input[name="username"]').length) continue;
 
       const fullName =
+        jwtName || 
         $('h1.page-header-headings span').first().text().trim() ||
         $('h1[class*="title"]').first().text().trim() ||
         $('h1.fullname').first().text().trim() ||
@@ -315,7 +331,20 @@ async function scrapeProfile(cookieStr: string) {
         null;
 
       const bodyText = $('body').text().replace(/\s+/g, ' ');
-      const nrp = bodyText.match(/\b(\d{10})\b/)?.[1] ?? null;
+      
+      let nrp = jwtNrp;
+      if (!nrp) {
+        // Coba cari tabel detail profil (Moodle)
+        $('dt:contains("NRP"), dt:contains("ID number"), dt:contains("Nomor Induk")').each((_, el) => {
+          const dd = $(el).next('dd').text().trim();
+          if (dd && /^\d+$/.test(dd.replace(/\D/g, ''))) nrp = dd.replace(/\D/g, '');
+        });
+      }
+      if (!nrp) {
+        // Fallback RegEx yang lebih aman (NRP PENS biasanya 10 digit berawalan 1, 2, 3, 4, 5, atau 7)
+        nrp = bodyText.match(/\b([1-7]\d{9})\b/)?.[1] ?? null;
+      }
+
       const prodi = bodyText.match(/D[34]\s+Teknik\s+\w+(?:\s+\w+)?/i)?.[0]?.trim() ?? null;
       const kelas = bodyText.match(/\b([1-4]\s*[A-Z]{2}\s*[A-Z])\b/)?.[1]?.trim() ?? null;
       const angkatan = parseInt(bodyText.match(/\b(20\d{2})\b/)?.[1] ?? '') || new Date().getFullYear();
@@ -333,7 +362,7 @@ async function scrapeProfile(cookieStr: string) {
       }
     } catch (e) { console.log(`[SCRAPE] Profile ${url}: ${(e as Error).message}`); }
   }
-  return { fullName: null, nrp: null, prodi: null, kelas: null, angkatan: new Date().getFullYear() };
+  return { fullName: jwtName, nrp: jwtNrp, prodi: null, kelas: null, angkatan: new Date().getFullYear() };
 }
 
 async function scrapeNilai(cookieStr: string) {
@@ -926,13 +955,7 @@ export async function POST(request: NextRequest) {
 
     const supa = createClient(supaUrl, svcKey, { auth: { autoRefreshToken: false, persistSession: false } });
 
-    // ── Auto-create tables if they don't exist ──
-    try {
-      await supa.rpc('ensure_tables_exist');
-      console.log('[CAS] ✓ Tables verified/created via RPC');
-    } catch (e) {
-      console.warn('[CAS] ensure_tables_exist RPC skipped (may not exist yet):', (e as Error).message);
-    }
+
 
     console.log(`\n${'='.repeat(60)}\n[CAS] Memvalidasi: ${netId}`);
 
@@ -970,7 +993,7 @@ export async function POST(request: NextRequest) {
     console.log(`[CAS] Dynamic parameters: tahun=${tahun}, semester=${academicSemester}`);
 
     const [profile, nilaiList, kehadiranList, tugasList, pengumumanList, matkulDetailList] = await Promise.all([
-      scrapeProfile(casResult.etholCookieStr),
+      scrapeProfile(casResult.etholCookieStr, jwt),
       scrapeNilai(casResult.etholCookieStr),
       scrapeKehadiran(casResult.etholCookieStr),
       scrapeTugas(casResult.etholCookieStr, jwt, tahun, academicSemester),
@@ -982,6 +1005,15 @@ export async function POST(request: NextRequest) {
 
     const userInfo = await syncToSupabase(supa, netId.trim(), profile, nilaiList, kehadiranList, tugasList, pengumumanList, matkulDetailList, casResult.etholCookieStr);
     console.log(`[CAS] ✓ Sync selesai: ${userInfo.email} (${userInfo.role})`);
+
+    // ── Sinkronisasi Mendalam (Prisma) ──
+    try {
+      console.log(`[CAS] Memulai sinkronisasi mendalam menggunakan Prisma...`);
+      const prismaSyncResult = await syncEtholData(userInfo.uid, casResult.etholCookieStr);
+      console.log(`[CAS] Prisma Sync:`, prismaSyncResult.message);
+    } catch (e: any) {
+      console.error(`[CAS] Prisma Sync failed: ${e.message}`);
+    }
 
     let tokens = { access_token: '', refresh_token: '' };
     if (jwtSecret) {

@@ -568,3 +568,137 @@
     flex-direction: row;
   }
 }
+
+/* FAQ Section */
+.faqSection {
+  width: 100%;
+  background-color: #f8fafc;
+  padding: 5rem 3rem;
+}
+
+.faqContainer {
+  max-width: 80rem;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3rem;
+}
+
+.faqHeader h2 {
+  font-size: 2.25rem;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0;
+}
+
+.headingUnderline {
+  height: 4px;
+  width: 60px;
+  background-color: #0D8ECF;
+  margin-top: 0.5rem;
+}
+
+.faqList {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+}
+
+.faqItem {
+  background-color: white;
+  border: 1px solid #e2e8f0;
+  padding: 1.5rem;
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.faqItem h4 {
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+/* Contact Section */
+.contactSection {
+  width: 100%;
+  background-color: white;
+  padding: 5rem 3rem;
+}
+
+.contactContainer {
+  max-width: 80rem;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4rem;
+}
+
+@media (min-width: 768px) {
+  .contactContainer {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.contactInfo, .contactAction {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.contactHeader h2 {
+  font-size: 2.25rem;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0;
+}
+
+.contactCampus {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.contactDetail {
+  color: #475569;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.contactAction {
+  background-color: #f1f5f9;
+  padding: 2.5rem;
+  border-radius: 1rem;
+  align-items: flex-start;
+}
+
+.contactAction h3 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+
+.btnInstruction {
+  background-color: #E67E22;
+  color: white;
+  padding: 0.75rem 2rem;
+  border-radius: 9999px;
+  font-weight: 700;
+  text-decoration: none;
+  margin: 1rem 0;
+  display: inline-block;
+  transition: background-color 0.2s;
+}
+
+.btnInstruction:hover {
+  background-color: #d67118;
+}
+
+.contactSubDesc {
+  color: #64748b;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}

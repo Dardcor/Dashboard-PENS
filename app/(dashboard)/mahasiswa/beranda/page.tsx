@@ -181,20 +181,7 @@ export default function MahasiswaBerandaPage() {
           <span style={{ fontSize: '0.75rem', color: '#999', fontStyle: 'italic' }}>
             Item dapat digeser ke kanan atau ke kiri
           </span>
-          <button
-            onClick={() => handleSync(false)}
-            disabled={isSyncing}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '0.4rem',
-              padding: '0.4rem 0.9rem', borderRadius: '20px',
-              border: '1px solid #ccc', backgroundColor: '#fff',
-              color: '#555', fontSize: '0.8rem', cursor: isSyncing ? 'not-allowed' : 'pointer',
-              opacity: isSyncing ? 0.7 : 1, boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-            }}
-          >
-            {isSyncing ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={13} />}
-            {isSyncing ? 'Menyinkronkan...' : 'Menyinkronkan...'}
-          </button>
+
         </div>
       </div>
 

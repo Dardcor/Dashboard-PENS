@@ -137,73 +137,72 @@ export default function LoginPage() {
         display: 'flex',
         flexDirection: 'column',
         backgroundColor: '#ffffff',
-        fontFamily: 'Arial, Helvetica, sans-serif',
+        fontFamily: 'Arial, sans-serif',
       }}
     >
       {/* Header / Logo */}
-      <div style={{ padding: '15px 40px', backgroundColor: 'white' }}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="/logo.png"
-          alt="EEPIS Logo"
-          style={{ height: '55px', cursor: 'pointer' }}
-          onClick={() => router.push('/landing')}
-        />
+      <div style={{ width: '100%', backgroundColor: 'white' }}>
+        <div style={{ maxWidth: '960px', margin: '0 auto', padding: '15px 15px' }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/logo.png"
+            alt="PENS Logo"
+            style={{ height: '45px', cursor: 'pointer', objectFit: 'contain' }}
+            onClick={() => router.push('/landing')}
+          />
+        </div>
       </div>
 
       {/* CAS Banner */}
       <div
         style={{
-          backgroundColor: '#273663',
-          backgroundImage: 'linear-gradient(to right, #273663, #151e3d)',
-          padding: '20px 40px',
-          color: 'white',
-          borderTop: '2px solid #e2e8f0',
-          borderBottom: '4px solid #f59e0b',
+          backgroundColor: '#1D1268',
+          width: '100%',
         }}
       >
-        <h1 style={{ margin: 0, fontSize: '1.6rem', fontWeight: 400, letterSpacing: '0.5px' }}>
-          EEPIS Central Authentication Service (CAS)
-        </h1>
+        <div style={{ maxWidth: '960px', margin: '0 auto', padding: '15px 15px' }}>
+          <h1 style={{ color: '#ffffff', margin: 0, fontSize: '24px', fontWeight: 'normal', fontFamily: '"Times New Roman", Times, serif' }}>
+            EEPIS Central Authentication Service (CAS)
+          </h1>
+        </div>
       </div>
 
-      {/* Form Area */}
+      {/* Main Content Area */}
       <div
         style={{
-          display: 'flex',
-          justifyContent: 'center',
-          padding: '40px 20px',
+          width: '100%',
           flex: 1,
-          backgroundColor: '#f9f9f9',
+          backgroundColor: '#ffffff',
         }}
       >
         <div
           style={{
-            display: 'grid',
-            gridTemplateColumns: 'minmax(350px, 420px) minmax(300px, 350px)',
-            gap: '2.5rem',
-            maxWidth: '850px',
-            width: '100%',
+            display: 'flex',
+            gap: '30px',
+            maxWidth: '960px',
+            margin: '0 auto',
+            padding: '25px 15px',
           }}
         >
-          {/* Login Form */}
-          <div>
+          {/* Left Panel - Login Form */}
+          <div style={{ width: '320px', flexShrink: 0 }}>
             <div
               style={{
-                backgroundColor: '#f1f5f9',
-                border: '1px solid #cbd5e1',
-                borderRadius: '4px',
-                padding: '25px',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                backgroundColor: '#f0f0f0',
+                border: '1px solid #dcdcdc',
+                borderRadius: '5px',
+                padding: '20px',
               }}
             >
               <h2
                 style={{
-                  margin: '0 0 20px 0',
-                  fontSize: '1.1rem',
+                  margin: '0 0 15px 0',
+                  fontSize: '16px',
                   color: '#333',
-                  borderBottom: '1px solid #cbd5e1',
-                  paddingBottom: '15px',
+                  fontWeight: 'normal',
+                  borderBottom: '1px dotted #bbb',
+                  paddingBottom: '10px',
+                  fontFamily: '"Times New Roman", Times, serif'
                 }}
               >
                 Enter your NetID and Password
@@ -212,13 +211,12 @@ export default function LoginPage() {
               {errorMsg && (
                 <div
                   style={{
-                    padding: '10px 15px',
-                    marginBottom: '20px',
+                    padding: '8px',
+                    marginBottom: '15px',
                     backgroundColor: '#fee2e2',
                     border: '1px solid #f87171',
                     color: '#b91c1c',
-                    borderRadius: '3px',
-                    fontSize: '0.85rem',
+                    fontSize: '11px',
                   }}
                 >
                   {errorMsg}
@@ -228,38 +226,21 @@ export default function LoginPage() {
               {statusMsg && !errorMsg && (
                 <div
                   style={{
-                    padding: '10px 15px',
-                    marginBottom: '20px',
+                    padding: '8px',
+                    marginBottom: '15px',
                     backgroundColor: '#e0f2fe',
                     border: '1px solid #38bdf8',
                     color: '#0284c7',
-                    borderRadius: '3px',
-                    fontSize: '0.85rem',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
+                    fontSize: '11px',
                   }}
                 >
-                  <span
-                    style={{
-                      display: 'inline-block',
-                      width: '12px',
-                      height: '12px',
-                      border: '2px solid #38bdf8',
-                      borderTopColor: '#0284c7',
-                      borderRadius: '50%',
-                      animation: 'spin 0.8s linear infinite',
-                    }}
-                  />
                   {statusMsg}
                 </div>
               )}
 
-              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-
               <form onSubmit={handleLogin}>
-                <div style={{ marginBottom: '15px', display: 'flex', alignItems: 'center' }}>
-                  <label style={{ width: '90px', fontSize: '0.9rem', color: '#444', fontWeight: 'bold' }}>
+                <div style={{ marginBottom: '10px' }}>
+                  <label style={{ display: 'block', fontSize: '11px', color: '#666', marginBottom: '2px' }}>
                     NetID:
                   </label>
                   <input
@@ -270,19 +251,18 @@ export default function LoginPage() {
                     required
                     disabled={isLoading}
                     style={{
-                      flex: 1,
-                      padding: '8px 12px',
-                      border: '1px solid #94a3b8',
-                      borderRadius: '3px',
-                      fontSize: '0.9rem',
-                      opacity: isLoading ? 0.6 : 1,
+                      width: '100%',
+                      padding: '3px',
+                      border: '1px solid #7F9DB9',
+                      fontSize: '12px',
+                      boxSizing: 'border-box'
                     }}
                     autoFocus
                   />
                 </div>
 
-                <div style={{ marginBottom: '20px', display: 'flex', alignItems: 'center' }}>
-                  <label style={{ width: '90px', fontSize: '0.9rem', color: '#444', fontWeight: 'bold' }}>
+                <div style={{ marginBottom: '15px' }}>
+                  <label style={{ display: 'block', fontSize: '11px', color: '#666', marginBottom: '2px' }}>
                     Password:
                   </label>
                   <input
@@ -293,48 +273,50 @@ export default function LoginPage() {
                     required
                     disabled={isLoading}
                     style={{
-                      flex: 1,
-                      padding: '8px 12px',
-                      border: '1px solid #94a3b8',
-                      borderRadius: '3px',
-                      fontSize: '0.9rem',
-                      opacity: isLoading ? 0.6 : 1,
+                      width: '100%',
+                      padding: '3px',
+                      border: '1px solid #7F9DB9',
+                      fontSize: '12px',
+                      boxSizing: 'border-box'
                     }}
                   />
                 </div>
 
-                <div style={{ display: 'flex', gap: '10px', marginLeft: '90px' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', marginBottom: '15px', gap: '5px' }}>
+                  <input type="checkbox" id="warn" style={{ margin: '1px 0 0 0' }} />
+                  <label htmlFor="warn" style={{ fontSize: '11px', color: '#777', lineHeight: '1.4' }}>
+                    Warn me before logging me into other sites.
+                  </label>
+                </div>
+
+                <div style={{ borderTop: '1px dotted #bbb', paddingTop: '15px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <button
                     id="cas-login-btn"
                     type="submit"
                     disabled={isLoading}
                     style={{
-                      backgroundColor: '#273663',
-                      color: 'white',
-                      border: '1px solid #151e3d',
-                      padding: '6px 20px',
-                      borderRadius: '3px',
-                      fontSize: '0.9rem',
+                      backgroundColor: '#ffffff',
+                      color: '#000',
+                      border: '1px solid #999',
+                      padding: '2px 6px',
+                      fontSize: '11px',
                       fontWeight: 'bold',
-                      cursor: isLoading ? 'not-allowed' : 'pointer',
-                      opacity: isLoading ? 0.7 : 1,
+                      cursor: isLoading ? 'wait' : 'pointer',
                     }}
                   >
-                    {isLoading ? 'MEMPROSES...' : 'LOGIN'}
+                    LOGIN
                   </button>
                   <button
                     type="button"
                     onClick={handleClear}
                     disabled={isLoading}
                     style={{
-                      backgroundColor: '#f8fafc',
-                      color: '#333',
-                      border: '1px solid #94a3b8',
-                      padding: '6px 20px',
-                      borderRadius: '3px',
-                      fontSize: '0.9rem',
-                      cursor: isLoading ? 'not-allowed' : 'pointer',
-                      opacity: isLoading ? 0.5 : 1,
+                      background: 'none',
+                      border: 'none',
+                      color: '#777',
+                      fontSize: '11px',
+                      cursor: 'pointer',
+                      padding: 0,
                     }}
                   >
                     clear
@@ -344,49 +326,74 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {/* Right panel */}
-          <div>
-            <div style={{ marginBottom: '30px' }}>
-              <p style={{ fontSize: '0.85rem', color: '#444', lineHeight: '1.6', margin: '0 0 10px 0' }}>
-                For security reasons, please <strong>Log Out</strong> and Exit your web browser when
-                you are done accessing services that require authentication!
-              </p>
-              {isLoading && (
-                <div
-                  style={{
-                    marginTop: '16px',
-                    padding: '12px',
-                    backgroundColor: '#fefce8',
-                    border: '1px solid #fbbf24',
-                    borderRadius: '4px',
-                    fontSize: '0.8rem',
-                    color: '#92400e',
-                  }}
-                >
-                  ⏳ Proses login membutuhkan waktu 10–30 detik karena sistem sedang mengambil data
-                  akademik dari ETHOL PENS secara otomatis.
-                </div>
-              )}
+          {/* Right Panel - Info & Languages */}
+          <div style={{ flex: 1 }}>
+            <p style={{ fontSize: '11px', color: '#555', margin: '0 0 25px 0' }}>
+              For security reasons, please Log Out and Exit your web browser when you are done accessing services that require authentication!
+            </p>
+
+            <div>
+              <div style={{ color: '#333', fontSize: '12px', marginBottom: '4px' }}>Languages:</div>
+              <div style={{ fontSize: '11px', lineHeight: '1.8' }}>
+                <a href="#" style={{ color: '#0000EE', textDecoration: 'underline', marginRight: '5px' }}>English</a>
+                <a href="#" style={{ color: '#0000EE', textDecoration: 'underline', marginRight: '5px' }}>Spanish</a>
+                <a href="#" style={{ color: '#0000EE', textDecoration: 'underline', marginRight: '5px' }}>French</a>
+                <a href="#" style={{ color: '#0000EE', textDecoration: 'underline', marginRight: '5px' }}>Russian</a>
+                <a href="#" style={{ color: '#0000EE', textDecoration: 'underline', marginRight: '5px' }}>Nederlands</a>
+                <a href="#" style={{ color: '#0000EE', textDecoration: 'underline', marginRight: '5px' }}>Svenskt</a>
+                <a href="#" style={{ color: '#0000EE', textDecoration: 'underline', marginRight: '5px' }}>Italiano</a>
+                <a href="#" style={{ color: '#0000EE', textDecoration: 'underline', marginRight: '5px' }}>Urdu</a>
+                <a href="#" style={{ color: '#0000EE', textDecoration: 'underline', marginRight: '5px' }}>Chinese (Simplified)</a>
+                <a href="#" style={{ color: '#0000EE', textDecoration: 'underline', marginRight: '5px' }}>Deutsch</a>
+                <a href="#" style={{ color: '#0000EE', textDecoration: 'underline', marginRight: '5px' }}>Japanese</a>
+                <a href="#" style={{ color: '#0000EE', textDecoration: 'underline', marginRight: '5px' }}>Croatian</a>
+                <a href="#" style={{ color: '#0000EE', textDecoration: 'underline', marginRight: '5px' }}>Czech</a>
+                <a href="#" style={{ color: '#0000EE', textDecoration: 'underline', marginRight: '5px' }}>Slovenian</a>
+                <a href="#" style={{ color: '#0000EE', textDecoration: 'underline', marginRight: '5px' }}>Polish</a>
+                <a href="#" style={{ color: '#0000EE', textDecoration: 'underline', marginRight: '5px' }}>Portuguese (Brazil)</a>
+                <a href="#" style={{ color: '#0000EE', textDecoration: 'underline' }}>Turkish</a>
+              </div>
             </div>
+            
+            {isLoading && (
+              <div
+                style={{
+                  marginTop: '30px',
+                  padding: '8px',
+                  backgroundColor: '#fefce8',
+                  border: '1px solid #fbbf24',
+                  fontSize: '11px',
+                  color: '#92400e',
+                }}
+              >
+                ⏳ Mengautentikasi dan menyinkronkan data dari ETHOL PENS... (10-30 detik)
+              </div>
+            )}
           </div>
         </div>
       </div>
 
       {/* Footer */}
-      <div
-        style={{
-          padding: '20px 40px',
-          borderTop: '1px solid #e2e8f0',
-          backgroundColor: 'white',
+      <div style={{ width: '100%', backgroundColor: 'white', paddingBottom: '20px' }}>
+        <div style={{ 
+          maxWidth: '960px', 
+          margin: '20px auto 0 auto', 
+          borderTop: '1px dotted #ccc',
+          padding: '15px 15px 0 15px',
           display: 'flex',
-          alignItems: 'center',
           justifyContent: 'space-between',
-          color: '#64748b',
-          fontSize: '0.8rem',
-        }}
-      >
-        <div>Powered by JA-SIG Central Authentication Service 3.4.2.1</div>
-        <div>Politeknik Elektronika Negeri Surabaya</div>
+          alignItems: 'center'
+        }}>
+          <div style={{ fontSize: '10px', color: '#777' }}>
+            Powered by <a href="#" style={{ color: '#0000EE', textDecoration: 'underline' }}>JA-SIG Central Authentication Service</a>
+          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/logo.png"
+            alt="PENS Logo"
+            style={{ height: '30px', objectFit: 'contain' }}
+          />
+        </div>
       </div>
     </div>
   );

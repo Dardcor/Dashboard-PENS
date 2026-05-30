@@ -93,24 +93,7 @@ export default function MahasiswaJadwalOnlinePage() {
         display: 'flex', gap: '1rem', marginBottom: '1.5rem',
         alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap',
       }}>
-        <button
-          onClick={() => fetchJadwal()}
-          disabled={syncing}
-          style={{
-            display: 'flex', alignItems: 'center', gap: '0.4rem',
-            padding: '0.45rem 1rem',
-            backgroundColor: '#fff', border: '1px solid #ced4da',
-            borderRadius: '4px', color: '#495057', fontSize: '0.85rem',
-            fontWeight: 500, cursor: syncing ? 'not-allowed' : 'pointer',
-            opacity: syncing ? 0.7 : 1,
-            boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
-          }}
-        >
-          {syncing
-            ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite', color: '#0b668b' }} />
-            : <RefreshCw size={14} style={{ color: '#0b668b' }} />}
-          {syncing ? 'Menyinkronkan...' : 'Sinkronisasi Ulang'}
-        </button>
+
       </div>
 
       {/* ── Content ─────────────────────────────────────────────────────────── */}

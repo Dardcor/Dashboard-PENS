@@ -131,6 +131,63 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* FAQ Section */}
+      <section id="faq" className={styles.faqSection}>
+        <div className={styles.faqContainer}>
+          <div className={styles.faqHeader}>
+            <h2>FAQ</h2>
+            <div className={styles.headingUnderline}></div>
+          </div>
+          
+          <div className={styles.faqList}>
+            <div className={styles.faqItem}>
+              <h4>Apa yang harus dilakukan jika tidak bisa login ke ETHOL karena lupa email dan password ?</h4>
+            </div>
+            <div className={styles.faqItem}>
+              <h4>Bagaimana jika kuliah saya di semester ini tidak muncul ?</h4>
+            </div>
+            <div className={styles.faqItem}>
+              <h4>Bagaimana jika saya tidak dapat melakukan klik pada tombol Presensi saat akan mengikuti perkuliahan online ?</h4>
+            </div>
+            <div className={styles.faqItem}>
+              <h4>Data rekap presensi yang valid apakah yang ada di ETHOL atau Online MIS ?</h4>
+            </div>
+            <div className={styles.faqItem}>
+              <h4>Bagaimana cara setting Conference Lainnya ?</h4>
+            </div>
+            <div className={styles.faqItem}>
+              <h4>Apakah dosen bisa membuka presensi di kuliah yang berbeda dalam waktu bersamaan ?</h4>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Contact Section */}
+      <section id="contact" className={styles.contactSection}>
+        <div className={styles.contactContainer}>
+          <div className={styles.contactInfo}>
+            <div className={styles.contactHeader}>
+              <h2>Contact Us</h2>
+              <div className={styles.headingUnderline}></div>
+            </div>
+            
+            <h3 className={styles.contactCampus}>Politeknik Elektronika Negeri Surabaya.</h3>
+            <p className={styles.contactDetail}>Kampus, Jl. Raya ITS, Keputih, Kec. Sukolilo, Kota Surabaya, Jawa Timur 60111</p>
+            <p className={styles.contactDetail}>info@pens.ac.id<br/>humas@pens.ac.id<br/>+62 31 594 7280</p>
+            <p className={styles.contactDetail}>Available from Monday-Friday at 08:00-16:00 local time</p>
+          </div>
+          
+          <div className={styles.contactAction}>
+            <h3>Request for Join as USBJJ ?</h3>
+            <p>Follow the instruction bellow</p>
+            <a href="https://ethol.pens.ac.id/usbjj/" className={styles.btnInstruction}>Instruction »</a>
+            <p className={styles.contactSubDesc}>
+              Enterprise Technology Hybrid Online Learning is a platform that provides an excellent online learning experience for students, with many features and easy to use and has a good user experience.
+            </p>
+          </div>
+        </div>
+      </section>
+
       {/* Footer */}
       <footer className={styles.footer}>
         <div className={styles.footerUpper}>

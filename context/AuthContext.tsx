@@ -35,14 +35,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const localSess = typeof window !== 'undefined' ? localStorage.getItem('pens_local_session') : null;
+    let localUserId: string | null = null;
+    
     if (localSess) {
       try {
         const u = JSON.parse(localSess);
         if (u && u.id) {
+          localUserId = u.id;
           setUser(u);
           setRole(u.role);
           setSession({ user: { id: u.id, email: u.email } } as unknown as Session);
-          setLoading(false);
         }
       } catch (e) {
         console.error(e);
@@ -53,7 +55,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (session?.user) {
         setSession(session);
         fetchUserProfile(session.user.id);
-      } else if (!localSess) {
+      } else if (localUserId) {
+        // Verifikasi local session ke database
+        fetchUserProfile(localUserId);
+      } else {
         setLoading(false);
       }
     });
@@ -83,7 +88,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .eq('id', userId)
         .single();
 
-      if (error) throw error;
+      if (error || !data) throw error || new Error("User not found");
 
       setUser(data as PublicUser);
       setRole(data.role as UserRole);
@@ -91,7 +96,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem('pens_local_session', JSON.stringify(data));
       }
     } catch (error) {
-      console.error(error);
+      console.error("Verifikasi gagal (User tidak ditemukan):", error);
+      // Hapus sesi lokal dan sign out karena DB kosong atau user dihapus
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('pens_local_session');
+      }
+      setUser(null);
+      setRole(null);
+      setSession(null);
+      await supabase.auth.signOut();
     } finally {
       setLoading(false);
     }
